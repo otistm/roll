@@ -1,0 +1,7 @@
+{
+  "name": "roll",
+  "private": true,
+  "scripts": {
+    "dev": "npx --yes serve . -l 5173"
+  }
+}
