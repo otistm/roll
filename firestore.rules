@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scores/{uid} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && isValidScore(request.resource.data);
+
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && isValidScore(request.resource.data)
+        && request.resource.data.score >= resource.data.score;
+
+      allow delete: if false;
+    }
+  }
+
+  function isValidScore(data) {
+    return data.keys().hasOnly(['name', 'score', 'updatedAt'])
+      && data.name is string
+      && data.name.size() >= 2
+      && data.name.size() <= 12
+      && data.score is int
+      && data.score >= 0
+      && data.score <= 999999
+      && data.updatedAt == request.time;
+  }
+}
