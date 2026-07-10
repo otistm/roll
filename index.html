@@ -169,7 +169,7 @@
   <input id="nameField" type="text" maxlength="12" autocomplete="off" autocorrect="off"
     autocapitalize="characters" spellcheck="false" placeholder="YOUR NAME" enterkeyhint="done">
   <div id="nameHint"></div>
-  <p>STICK TO MOVE &middot; TAP TO HOP<br>TAP MIDAIR TO POUND<br>DODGE THE INK &middot; EAT THE GOLD<br>BLUE = SPEED &middot; RIDE RAMPS TO FLY<br>GAMEPAD &middot; LEFT STICK + A / &#10005;</p>
+  <p>STICK TO MOVE &middot; TAP TO HOP<br>TAP MIDAIR TO POUND<br>DODGE THE INK &middot; EAT THE GOLD<br>BLUE = SPEED &middot; RIDE RAMPS TO FLY<br>THE RING IS A PORTAL &middot; CLIMB FOR DIAMONDS<br>GAMEPAD &middot; LEFT STICK + A / &#10005;</p>
   <div id="startCta" class="cta">TAP TO START</div>
   <div class="board" id="startBoard">
     <h2>TOP SCORES</h2>
@@ -208,6 +208,9 @@
   var INK=0x111111, RED=0xe8262a, GOLD=0xf2b705, WARN=0xbbbbbb;
   var SHADE=0x9a9a9a, SDX=0.848, SDZ=-0.53; /* drop-shadow color + direction (opposite key light) */
   var FIELD_OFF=false;      /* true while the major boss owns the arena: terrain + pillars vanish */
+  var level='arena';        /* 'arena' = hub / rest area, 'corridor' = THE CLIMB */
+  var PIPE_K=0.032, PIPE_HW=10, CORR_XMAX=12.5, CORR_START=6, CORR_END=-130;
+  var DIAMOND=0xbfeef8;
   var fieldMeshes=[];       /* everything hidden during the major boss event */
 
   /* Launch ramps: wedges rising toward the arena center with a cliff at the lip.
@@ -221,6 +224,10 @@
 
   function terrainH(x,z){
     if(FIELD_OFF)return 0;
+    if(level==='corridor'){ /* half-pipe: parabolic valley, steep outer walls */
+      var d=Math.abs(x);
+      return d<=PIPE_HW ? PIPE_K*d*d : PIPE_K*PIPE_HW*PIPE_HW+(d-PIPE_HW)*2;
+    }
     var h=0;
     for(var i=0;i<RAMPS.length;i++){
       var r=RAMPS[i];
@@ -299,7 +306,7 @@
   var ground=new THREE.Mesh(groundGeo,new THREE.MeshToonMaterial({
     color:0xffffff, map:dotTex, gradientMap:groundGradient
   }));
-  scene.add(ground);
+  scene.add(ground); fieldMeshes.push(ground);
 
   /* Arena rim: flat ink ring */
   /* Ramps as crisp wedge prisms: white toon faces, ink edge lines,
@@ -349,7 +356,63 @@
     new THREE.MeshBasicMaterial({color:INK,side:THREE.DoubleSide})
   );
   rim.rotation.x=-Math.PI/2; rim.position.y=0.04;
-  scene.add(rim);
+  scene.add(rim); fieldMeshes.push(rim);
+
+  /* ---------------- THE CLIMB: corridor level meshes ---------------- */
+  var corrMeshes=[];
+  function corrReg(m){ m.visible=false; scene.add(m); corrMeshes.push(m); return m; }
+  /* half-pipe floor: displaced strip with the same dot texture */
+  (function(){
+    var g=new THREE.PlaneGeometry(30,160,48,160);
+    g.rotateX(-Math.PI/2);
+    var gp=g.attributes.position, nrm=new Float32Array(gp.count*3), e=0.12;
+    function pipeH(x){var d=Math.abs(x);return d<=PIPE_HW?PIPE_K*d*d:PIPE_K*PIPE_HW*PIPE_HW+(d-PIPE_HW)*2;}
+    for(var i=0;i<gp.count;i++){
+      var x=gp.getX(i);
+      gp.setY(i,pipeH(x));
+      var gx=(pipeH(x+e)-pipeH(x-e))/(2*e);
+      var im=1/Math.hypot(gx,1);
+      nrm[i*3]=-gx*im; nrm[i*3+1]=im; nrm[i*3+2]=0;
+    }
+    g.setAttribute('normal',new THREE.BufferAttribute(nrm,3));
+    var m=new THREE.Mesh(g,new THREE.MeshToonMaterial({color:0xffffff,map:dotTex,gradientMap:groundGradient}));
+    m.position.z=(CORR_START+CORR_END)/2;
+    corrReg(m);
+    /* ink rails along the pipe edges */
+    [-PIPE_HW,PIPE_HW].forEach(function(rx){
+      var rail=new THREE.Mesh(new THREE.BoxGeometry(0.35,0.35,160),
+        new THREE.MeshBasicMaterial({color:INK}));
+      rail.position.set(rx,PIPE_K*PIPE_HW*PIPE_HW+0.15,(CORR_START+CORR_END)/2);
+      corrReg(rail);
+    });
+  })();
+  /* portals: ink torus rings — one in the hub (enter), one atop the climb (exit) */
+  function makePortal(x,z){
+    var t=new THREE.Mesh(new THREE.TorusGeometry(1.5,0.22,14,36),
+      new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap}));
+    t.position.set(x,1.7,z);
+    return t;
+  }
+  var hubPortal=makePortal(0,-16);
+  scene.add(hubPortal); fieldMeshes.push(hubPortal);
+  var exitPortal=corrReg(makePortal(0,CORR_END));
+  /* corridor coins: pre-placed weave along the pipe walls */
+  var corrCoins=[]; /* built after coin geometry is defined, see buildCorrCoins() */
+  /* sliders: ink cubes oscillating across the pipe */
+  var sliders=[];
+  [ -28,-52,-76,-100 ].forEach(function(sz,idx){
+    var m=corrReg(new THREE.Mesh(new THREE.BoxGeometry(1.7,1.7,1.7),
+      new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
+    sliders.push({mesh:m,z:sz,amp:7,speed:0.9+idx*0.25,phase:idx*1.7});
+  });
+  /* gates: rotating ink bars over the pipe center */
+  var gates=[];
+  [ -40,-88 ].forEach(function(gz,idx){
+    var m=corrReg(new THREE.Mesh(new THREE.BoxGeometry(12,0.8,0.7),
+      new THREE.MeshBasicMaterial({color:INK})));
+    m.position.set(0,0.9,gz);
+    gates.push({mesh:m,z:gz,theta:idx*1.3,omega:idx%2?1.1:-1.1});
+  });
 
   /* Pillars: cover that blocks bullets (not beams) */
   PILLARS.forEach(function(pl){
@@ -423,8 +486,9 @@
     for(var i=0;i<chords.length;i++){
       var c=chords[i];
       if(!c.alive){
-        var a=Math.random()*Math.PI*2, rr=Math.random()*14;
-        c.px=Math.cos(a)*rr; c.pz=Math.sin(a)*rr;
+        var a=Math.random()*Math.PI*2, rr=Math.random()*(level==='corridor'?7:14);
+        var ccx=level==='corridor'?pos.x*0.5:0, ccz=level==='corridor'?pos.z-12:0;
+        c.px=ccx+Math.cos(a)*rr; c.pz=ccz+Math.sin(a)*rr;
         var phi=Math.random()*Math.PI;
         c.ux=Math.cos(phi); c.uz=Math.sin(phi);
         c.alive=true; c.warn=0.85; c.life=0.4;
@@ -468,12 +532,52 @@
     }
   }
 
+  /* corridor coins: pre-placed weave, rebuilt on each entry */
+  function buildCorrCoins(){
+    if(!corrCoins.length){
+      for(var i=0;i<26;i++){
+        var m=new THREE.Mesh(coinGeo,new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
+        m.add(new THREE.Mesh(coinOutGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+        corrReg(m);
+        corrCoins.push({mesh:m,alive:false,x:0,z:0});
+      }
+    }
+    for(var j=0;j<corrCoins.length;j++){
+      var c=corrCoins[j];
+      c.z=CORR_START-14-j*4.4;
+      c.x=Math.sin(j*0.55)*7.5;      /* weave up the walls */
+      c.alive=true;
+      c.mesh.position.set(c.x,0,c.z); /* y set per-frame (bob) */
+      c.mesh.visible=true;
+    }
+  }
+  /* diamonds: 50 coins each, perched high on the walls */
+  var diamonds=[];
+  (function(){
+    var dGeo=new THREE.OctahedronGeometry(0.6);
+    [{x:8.6,z:-46},{x:-8.6,z:-96}].forEach(function(dp){
+      var m=corrReg(new THREE.Mesh(dGeo,new THREE.MeshToonMaterial({color:DIAMOND,gradientMap:gradientMap})));
+      m.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.68),
+        new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+      diamonds.push({mesh:m,alive:false,x:dp.x,z:dp.z});
+    });
+  })();
+  function resetDiamonds(){
+    for(var i=0;i<diamonds.length;i++){
+      var d=diamonds[i];
+      d.alive=true;
+      d.mesh.position.set(d.x,terrainH(d.x,d.z)+1.1,d.z);
+      d.mesh.visible=true;
+    }
+  }
+
   /* Coin flight: project world position to screen, animate a DOM coin to the counter */
   var coinsEl=document.getElementById('coins');
   var coinCountEl=document.getElementById('coinCount');
   var coinsBanked=0;
   var projV=new THREE.Vector3();
-  function flyCoin(x,y,z){
+  function flyCoin(x,y,z,value){
+    value=value||1;
     projV.set(x,y,z).project(camera);
     var sx=(projV.x*0.5+0.5)*window.innerWidth;
     var sy=(-projV.y*0.5+0.5)*window.innerHeight;
@@ -490,7 +594,7 @@
     function bank(){
       if(done)return; done=true;
       if(el.parentNode)el.parentNode.removeChild(el);
-      coinsBanked++;
+      coinsBanked+=value;
       coinCountEl.innerHTML='&times; '+String(coinsBanked).padStart(2,'0');
       coinsEl.classList.remove('bump');
       void coinsEl.offsetWidth; /* restart bump animation */
@@ -920,7 +1024,8 @@
     hitStop=0; fovPulse=0; shakeT=0;
     storm=0; stormTimer=30; stormEl.classList.remove('on');
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
-    major=null; majorTimer=90; FIELD_OFF=false; setFieldVisible(true);
+    major=null; majorTimer=90; FIELD_OFF=false;
+    level='arena'; setCorridorVisible(false); setFieldVisible(true);
     majorMesh.visible=false; majorShadow.visible=false;
     stormSpan.textContent='INK STORM';
     heartDrop=null; heartCool=0; heartMesh.visible=false; heartShadow.visible=false;
@@ -1136,6 +1241,20 @@
     spawnAimed();
   }
 
+  /* Corridor threats: downstream bullet volleys aimed at the climber */
+  function corridorThreat(){
+    var roll=Math.random();
+    var sz=pos.z-42;
+    var sp=9+Math.min(elapsed*0.03,3);
+    if(roll<0.4){ /* aimed trio */
+      for(var i=-1;i<=1;i++)fireBullet(pos.x+i*2.2,sz,(pos.x-(pos.x+i*2.2))*0.02,sp);
+    } else if(roll<0.7){ /* fan of five */
+      for(var j=-2;j<=2;j++)fireBullet(j*3.4,sz,j*0.5,sp);
+    } else if(roll<0.9){ /* wall huggers */
+      fireBullet(-7,sz,0,sp+1); fireBullet(7,sz,0,sp+1);
+    } else { fireChord(); }
+  }
+
   /* ============================ Hit logic ============================ */
   function takeHit(fromX,fromZ){
     if(iframes>0)return;
@@ -1168,10 +1287,56 @@
     if(major&&Math.hypot(pos.x-major.x,pos.z-major.z)<7)majorHitByPound();
   }
 
+  /* ------------------- level transitions ------------------- */
+  function setArenaVisible(v){
+    setFieldVisible(v);
+  }
+  function setCorridorVisible(v){
+    for(var i=0;i<corrMeshes.length;i++)corrMeshes[i].visible=v;
+    if(v){ /* coins/diamonds/sliders/gates re-show per their alive flags */
+      for(var j=0;j<corrCoins.length;j++)corrCoins[j].mesh.visible=corrCoins[j].alive;
+      for(var k=0;k<diamonds.length;k++)diamonds[k].mesh.visible=diamonds[k].alive;
+    }
+  }
+  function clearThreats(){
+    bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+    chords.forEach(function(c){c.alive=false;c.mesh.visible=false;});
+    sweep.active=false; sweep.mesh.visible=false; spiral=null;
+    boss=null; bossMesh.visible=false; bossShadow.visible=false;
+    storm=0; stormEl.classList.remove('on');
+    heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
+  }
+  function enterCorridor(){
+    level='corridor';
+    clearThreats();
+    setArenaVisible(false);
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    buildCorrCoins(); resetDiamonds();
+    setCorridorVisible(true);
+    pos.set(0,RADIUS,CORR_START-2); vel.set(0,0,0); grounded=true;
+    bossTimer=20; /* corridor boss arrives partway up */
+    spawnTimer=2;
+    spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
+  function exitCorridor(){
+    level='arena';
+    clearThreats();
+    setCorridorVisible(false);
+    setArenaVisible(true);
+    pos.set(0,RADIUS+4,0); vel.set(0,0,0); grounded=false;
+    hearts=3; updateHUD(); heartSfx(); /* climb clear restores hearts */
+    bossTimer=20; spawnTimer=1.5; stormTimer=Math.max(stormTimer,12);
+    spawnShock(0,0); fovPulse=0.3; boomSfx();
+  }
+
   function spawnBoss(){
-    var a=Math.atan2(pos.z,pos.x)+Math.PI; /* enters opposite the player */
-    boss={x:Math.cos(a)*(ARENA-4),z:Math.sin(a)*(ARENA-4),
-          hp:3,cool:2.4,tele:0,flash:0,alt:false,tx:0,tz:0,retarget:0};
+    var a=level==='corridor'?0:Math.atan2(pos.z,pos.x)+Math.PI;
+    boss=level==='corridor'
+      ? {x:0,z:pos.z-32,ax:0,az:pos.z-32,
+         hp:3,cool:2.4,tele:0,flash:0,alt:false,tx:0,tz:0,retarget:0}
+      : {x:Math.cos(a)*(ARENA-4),z:Math.sin(a)*(ARENA-4),ax:0,az:0,
+         hp:3,cool:2.4,tele:0,flash:0,alt:false,tx:0,tz:0,retarget:0};
     bossMesh.visible=true; bossShadow.visible=true;
     boomSfx();
   }
@@ -1318,17 +1483,24 @@
       grounded=false; wasAirborne=true;
     }
 
-    /* rim wall */
-    var r=Math.hypot(pos.x,pos.z);
-    if(r>ARENA-RADIUS){
-      var nx=pos.x/r,nz=pos.z/r;
-      pos.x=nx*(ARENA-RADIUS); pos.z=nz*(ARENA-RADIUS);
-      var vr=vel.x*nx+vel.z*nz;
-      if(vr>0){vel.x-=(1+REST)*vr*nx; vel.z-=(1+REST)*vr*nz;}
+    /* bounds: circular rim in the hub, walls in the corridor */
+    if(level==='arena'){
+      var r=Math.hypot(pos.x,pos.z);
+      if(r>ARENA-RADIUS){
+        var nx=pos.x/r,nz=pos.z/r;
+        pos.x=nx*(ARENA-RADIUS); pos.z=nz*(ARENA-RADIUS);
+        var vr=vel.x*nx+vel.z*nz;
+        if(vr>0){vel.x-=(1+REST)*vr*nx; vel.z-=(1+REST)*vr*nz;}
+      }
+    } else {
+      if(pos.x> CORR_XMAX){pos.x= CORR_XMAX; if(vel.x>0)vel.x=-vel.x*REST;}
+      if(pos.x<-CORR_XMAX){pos.x=-CORR_XMAX; if(vel.x<0)vel.x=-vel.x*REST;}
+      if(pos.z> CORR_START){pos.z= CORR_START; if(vel.z>0)vel.z=-vel.z*REST;}
+      if(pos.z< CORR_END-2){pos.z= CORR_END-2; if(vel.z<0)vel.z=-vel.z*REST;}
     }
 
-    /* pillar bumpers (gone while the major boss owns the field) */
-    if(!FIELD_OFF)for(var i=0;i<PILLARS.length;i++){
+    /* pillar bumpers (hub only, gone during the major boss) */
+    if(!FIELD_OFF&&level==='arena')for(var i=0;i<PILLARS.length;i++){
       var pl=PILLARS[i];
       var dx=pos.x-pl.x, dz=pos.z-pl.z, dd=Math.hypot(dx,dz);
       var minD=pl.r+RADIUS;
@@ -1365,14 +1537,19 @@
       if(stormTimer<=0){ storm=10; stormTimer=50; stormCoins=0; stormEl.classList.add('on'); }
     }
 
-    /* threat scheduler (verified ramp: 3.0s -> 0.8s floor; /3 during storm) */
+    /* threat scheduler: arena uses classic threats; corridor uses climb volleys */
     spawnTimer-=dt;
     if(spawnTimer<=0){
-      scheduleThreat();
-      spawnTimer=Math.max(0.8,3.0-elapsed*0.035)/(storm>0?3:1);
+      if(level==='corridor'){
+        corridorThreat();
+        spawnTimer=Math.max(0.9,2.6-elapsed*0.02)/(storm>0?3:1);
+      } else {
+        scheduleThreat();
+        spawnTimer=Math.max(0.8,3.0-elapsed*0.035)/(storm>0?3:1);
+      }
     }
     }
-    if(!major){
+    if(!major&&level==='arena'){
       pipTimer-=dt;
       if(pipTimer<=0){spawnPip();pipTimer=4;}
     }
@@ -1387,13 +1564,19 @@
       b.x+=b.vx*dt; b.z+=b.vz*dt; b.age+=dt;
       if(b.age>9||Math.hypot(b.x,b.z)>ARENA+1.5){b.alive=false;b.mesh.visible=false;continue;}
       /* pillars block bullets: real cover */
-      if(!FIELD_OFF)for(var pj=0;pj<PILLARS.length;pj++){
+      if(!FIELD_OFF&&level==='arena')for(var pj=0;pj<PILLARS.length;pj++){
         var pl2=PILLARS[pj];
         if(Math.hypot(b.x-pl2.x,b.z-pl2.z)<pl2.r+BULLET_R){b.alive=false;b.mesh.visible=false;break;}
       }
       if(!b.alive)continue;
-      if(terrainH(b.x,b.z)>0.6){b.alive=false;b.mesh.visible=false;continue;} /* absorbed by ramps */
-      var by=BULLET_R;
+      var by;
+      if(level==='arena'){
+        if(terrainH(b.x,b.z)>0.6){b.alive=false;b.mesh.visible=false;continue;} /* absorbed by ramps */
+        by=BULLET_R;
+      } else {
+        by=terrainH(b.x,b.z)+BULLET_R; /* corridor bullets ride the pipe */
+        if(Math.abs(b.x)>CORR_XMAX||b.z>CORR_START+2){b.alive=false;b.mesh.visible=false;continue;}
+      }
       b.mesh.position.set(b.x,by,b.z);
       if(iframes<=0&&Math.hypot(pos.x-b.x,pos.z-b.z)<RADIUS+BULLET_R
          &&Math.abs(pos.y-by)<RADIUS+BULLET_R){
@@ -1459,7 +1642,7 @@
       boostT-=dt;
       if(boostT<=0)outline.material.color.setHex(INK);
     }
-    if(!major){
+    if(!major&&level==='arena'){
       boostSpawnTimer-=dt;
       if(boostSpawnTimer<=0){spawnBoost();boostSpawnTimer=11;}
     }
@@ -1555,7 +1738,7 @@
       }
     } else {
       majorTimer-=dt;
-      if(majorTimer<=0)startMajor();
+      if(majorTimer<=0&&level==='arena')startMajor();
     }
 
     /* boss */
@@ -1563,7 +1746,8 @@
       boss.retarget-=dt;
       if(boss.retarget<=0){
         var ba=Math.random()*Math.PI*2;
-        boss.tx=Math.cos(ba)*9; boss.tz=Math.sin(ba)*9; boss.retarget=6;
+        var bpr=level==='corridor'?6:9;
+        boss.tx=boss.ax+Math.cos(ba)*bpr; boss.tz=boss.az+Math.sin(ba)*bpr; boss.retarget=6;
       }
       var mdx=boss.tx-boss.x, mdz=boss.tz-boss.z, md=Math.hypot(mdx,mdz);
       if(md>0.2){boss.x+=mdx/md*2.2*dt; boss.z+=mdz/md*2.2*dt;}
@@ -1621,9 +1805,16 @@
         heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
       }
     } else if(!major&&hearts===1&&heartCool<=0&&Math.random()<dt*0.2){
-      var hha=Math.atan2(pos.z,pos.x)+Math.PI+(Math.random()-0.5);
-      var hhr=Math.min(14+Math.random()*8,ARENA-3);
-      heartDrop={x:Math.cos(hha)*hhr,z:Math.sin(hha)*hhr,t:8};
+      var hha, hhr;
+      if(level==='corridor'){
+        hha=Math.random()*Math.PI*2;
+        hhr=4+Math.random()*5;
+        heartDrop={x:Math.cos(hha)*hhr,z:pos.z-18-Math.random()*20,t:8};
+      } else {
+        hha=Math.atan2(pos.z,pos.x)+Math.PI+(Math.random()-0.5);
+        hhr=Math.min(14+Math.random()*8,ARENA-3);
+        heartDrop={x:Math.cos(hha)*hhr,z:Math.sin(hha)*hhr,t:8};
+      }
       heartMesh.position.set(heartDrop.x,terrainH(heartDrop.x,heartDrop.z)+1,heartDrop.z);
       heartMesh.visible=true; heartCool=30;
     }
@@ -1637,6 +1828,83 @@
       var shk=1-(sh2.t/0.35);
       sh2.mesh.scale.setScalar(0.5+shk*4.5);
       sh2.mesh.material.opacity=sh2.t/0.35;
+    }
+
+    /* --------------- corridor entities + portals --------------- */
+    if(level==='arena'){
+      hubPortal.rotation.y+=1.4*dt;
+      hubPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+      if(!major&&Math.hypot(pos.x-hubPortal.position.x,pos.z-hubPortal.position.z)<1.7){
+        enterCorridor();
+      }
+    } else {
+      exitPortal.rotation.y+=1.4*dt;
+      exitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+      if(Math.hypot(pos.x-exitPortal.position.x,pos.z-exitPortal.position.z)<2){
+        exitCorridor();
+      }
+      /* pre-placed coins on the pipe */
+      for(i=0;i<corrCoins.length;i++){
+        var cc=corrCoins[i];
+        if(!cc.alive)continue;
+        cc.mesh.rotation.y+=4*dt;
+        cc.mesh.position.y=terrainH(cc.x,cc.z)+0.75+Math.sin(elapsed*3+i)*0.08;
+        if(Math.hypot(pos.x-cc.x,pos.z-cc.z)<RADIUS+0.7&&Math.abs(pos.y-cc.mesh.position.y)<1.6){
+          cc.alive=false; cc.mesh.visible=false;
+          collected++; combo++;
+          coinScore+=5*Math.min(combo,12)*(storm>0?2:1);
+          if(storm>0){stormCoins++; if(stormCoins>=5)awardBadge('stormer');}
+          coinBlip(); updateHUD();
+          flyCoin(cc.x,cc.mesh.position.y,cc.z);
+        }
+      }
+      /* diamonds: 50 coins, delivered as a fountain of heavy flyers */
+      for(i=0;i<diamonds.length;i++){
+        var dd=diamonds[i];
+        if(!dd.alive)continue;
+        dd.mesh.rotation.y+=2.2*dt;
+        dd.mesh.rotation.x+=1.1*dt;
+        if(Math.hypot(pos.x-dd.x,pos.z-dd.z)<RADIUS+0.9&&Math.abs(pos.y-dd.mesh.position.y)<1.8){
+          dd.alive=false; dd.mesh.visible=false;
+          coinScore+=250;
+          var dx0=dd.x, dz0=dd.z, dy0=dd.mesh.position.y;
+          for(var df=0;df<10;df++)(function(k){
+            setTimeout(function(){
+              if(state!=='play')return;
+              combo++;
+              flyCoin(dx0+(Math.random()-0.5)*2,dy0,dz0+(Math.random()-0.5)*2,5);
+              coinBlip(); updateHUD();
+            },k*70);
+          })(df);
+          fovPulse=0.25; badgeSfx();
+        }
+      }
+      /* sliders: ink cubes sweeping the pipe */
+      for(i=0;i<sliders.length;i++){
+        var sl=sliders[i];
+        var sx=Math.sin(elapsed*sl.speed+sl.phase)*sl.amp;
+        sl.mesh.position.set(sx,terrainH(sx,sl.z)+0.85,sl.z);
+        sl.mesh.rotation.y+=1.5*dt;
+        if(iframes<=0&&Math.hypot(pos.x-sx,pos.z-sl.z)<RADIUS+1.0
+           &&Math.abs(pos.y-sl.mesh.position.y)<RADIUS+0.9){
+          takeHit(sx,sl.z);
+        }
+      }
+      /* gates: rotating bars over the pipe center (hop them) */
+      for(i=0;i<gates.length;i++){
+        var gt=gates[i];
+        gt.theta+=gt.omega*dt;
+        gt.mesh.rotation.y=-gt.theta;
+        gt.mesh.position.y=0.9;
+        if(iframes<=0&&pos.y-RADIUS<1.3){
+          var gdx=pos.x-0, gdz=pos.z-gt.z;
+          var perp=Math.abs(gdx*Math.sin(gt.theta)-gdz*Math.cos(gt.theta));
+          var along=Math.abs(gdx*Math.cos(gt.theta)+gdz*Math.sin(gt.theta));
+          if(perp<0.35+RADIUS&&along<6){
+            takeHit(pos.x-Math.sin(gt.theta),gt.z+Math.cos(gt.theta));
+          }
+        }
+      }
     }
 
     /* squash & stretch */
