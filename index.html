@@ -251,7 +251,7 @@
   var G=30, RADIUS=1, ACCEL=54, FRICTION=3.6, MAX_SPEED=15, REST=0.35; /* MAX_SPEED == ACCEL/FRICTION: no air/ground mismatch */
   var BLUE=0x18a0e8, BOOST_MULT=1.6, BOOST_TIME=4; /* speed pad: 1.6x for 4s, keeps clamp==terminal */
   var RAY=0x50ffd2, RAYGUN_TIME=10; /* unlocked after defeating the giant: auto-blasts projectiles */
-  var ARENA=26, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=140;
+  var ARENA=26, BOSS_ARENA=34, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=140;
   var INK=0x111111, RED=0xe8262a, GOLD=0xf2b705, WARN=0xbbbbbb;
   var SHADE=0x9a9a9a, SDX=0.848, SDZ=-0.53; /* drop-shadow color + direction (opposite key light) */
   var FIELD_OFF=false;      /* true while the major boss owns the arena: terrain + pillars vanish */
@@ -823,21 +823,41 @@
   var majorShadow=new THREE.Mesh(new THREE.CircleGeometry(3.6,48),
     new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.95}));
   majorShadow.rotation.x=-Math.PI/2; majorShadow.visible=false; scene.add(majorShadow);
-  /* Expanding ground ring: jump over it or take a hit */
-  var majorRingMesh=new THREE.Mesh(new THREE.RingGeometry(0.82,1.18,64),
-    new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.95,side:THREE.DoubleSide}));
-  majorRingMesh.rotation.x=-Math.PI/2; majorRingMesh.visible=false; scene.add(majorRingMesh);
+  /* Expanding ground rings: jump over them or take a hit (up to 2 at once) */
+  var majorRingMeshes=[];
+  for(var mri=0;mri<2;mri++){
+    var mrm=new THREE.Mesh(new THREE.RingGeometry(0.82,1.18,64),
+      new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.95,side:THREE.DoubleSide}));
+    mrm.rotation.x=-Math.PI/2; mrm.visible=false; scene.add(mrm);
+    majorRingMeshes.push(mrm);
+  }
   function clearMajorRing(){
-    majorRingMesh.visible=false;
-    if(major) major.ring=null;
+    for(var i=0;i<majorRingMeshes.length;i++) majorRingMeshes[i].visible=false;
+    if(major) major.rings=[];
   }
   function startMajorRing(){
-    major.ring={active:true,warn:0.4,r:2.2,maxR:ARENA+3,speed:16,cx:major.x,cz:major.z,hit:false};
-    majorRingMesh.visible=true;
-    majorRingMesh.material.color.setHex(WARN);
-    majorRingMesh.material.opacity=0.45;
-    majorRingMesh.position.set(major.x,0.12,major.z);
-    majorRingMesh.scale.setScalar(major.ring.r);
+    /* randomly 1 or 2 expanding rings; second is delayed + slightly slower */
+    var n=Math.random()<0.5?2:1;
+    major.rings=[];
+    for(var i=0;i<n;i++){
+      var mesh=majorRingMeshes[i];
+      var ring={
+        active:true,
+        warn:0.4+i*0.45,
+        r:2.2,
+        maxR:BOSS_ARENA+3,
+        speed:16-i*2.5,
+        cx:major.x, cz:major.z,
+        hit:false,
+        mesh:mesh
+      };
+      major.rings.push(ring);
+      mesh.visible=true;
+      mesh.material.color.setHex(WARN);
+      mesh.material.opacity=0.45;
+      mesh.position.set(major.x,0.12+i*0.02,major.z);
+      mesh.scale.setScalar(ring.r);
+    }
     boomSfx();
   }
   function setFieldVisible(v){ for(var i=0;i<fieldMeshes.length;i++)fieldMeshes[i].visible=v; }
@@ -1736,8 +1756,8 @@
     awardBadge('boss');
   }
 
-  /* Major boss room: hub portal drops you into an emptied arena.
-     Kill the giant → exit portal appears where it fell → back to hub. */
+  /* Major boss room: hub portal drops you into an emptied arena for 60s.
+     Kill the giant (or outlast the clock) → climb portal + raygun unlock. */
   function startMajor(){
     if(level==='corridor'){
       clearThreats();
@@ -1746,8 +1766,8 @@
     }
     bossExitActive=false; bossExitPortal.visible=false;
     /* always drop the player at the edge of the boss room */
-    pos.set(0,RADIUS+3,14); vel.set(0,0,0); grounded=false;
-    major={hp:6,cool:1.6,tele:0,flash:0,phase:0,x:0,z:0,volley:[],volleyWait:0,ring:null};
+    pos.set(0,RADIUS+3,BOSS_ARENA-10); vel.set(0,0,0); grounded=false;
+    major={hp:6,t:60,cool:1.6,tele:0,flash:0,phase:0,x:0,z:0,volley:[],volleyWait:0,rings:[]};
     FIELD_OFF=true; setFieldVisible(false);
     clearMajorRing();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
@@ -1758,40 +1778,43 @@
     rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
     heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
     boss=null; bossMesh.visible=false; bossShadow.visible=false; bossTimer=45;
-    storm=0; stormSpan.textContent='MAJOR THREAT'; stormEl.classList.add('on');
+    storm=0; stormSpan.textContent='MAJOR · 60s'; stormEl.classList.add('on');
     majorMesh.visible=true; majorShadow.visible=true;
     spawnShock(0,0); spawnShock(0,0);
     hitStop=Math.max(hitStop,0.1); fovPulse=0.3;
-    toastQueue.push('DEFEAT THE GIANT'); showNextToast();
+    toastQueue.push('DEFEAT THE GIANT \u00B7 60s'); showNextToast();
     boomSfx();
   }
-  /* Giant exhausted: vanish, leave a climb portal; unlock raygun */
-  function defeatMajor(){
-    var kx=major.x, kz=major.z;
-    for(var i=0;i<24;i++)(function(k){
-      setTimeout(function(){
-        if(state==='over'||state==='start')return;
-        combo++;
-        coinScore+=5*Math.min(combo,12);
-        flyCoin(kx+(Math.random()-0.5)*5,4,kz+(Math.random()-0.5)*5);
-        coinBlip(); updateHUD();
-      },k*70);
-    })(i);
+  /* Shared exit: clear the giant, open climb portal, unlock raygun */
+  function finishMajor(killed){
+    var kx=major?major.x:0, kz=major?major.z:0;
+    if(killed){
+      for(var i=0;i<24;i++)(function(k){
+        setTimeout(function(){
+          if(state==='over'||state==='start')return;
+          combo++;
+          coinScore+=5*Math.min(combo,12);
+          flyCoin(kx+(Math.random()-0.5)*5,4,kz+(Math.random()-0.5)*5);
+          coinBlip(); updateHUD();
+        },k*70);
+      })(i);
+    }
     spawnShock(kx,kz);
-    awardBadge('giant');
+    awardBadge(killed?'giant':'survive');
     majorDone=true;
     major=null;
     majorMesh.visible=false; majorShadow.visible=false;
     clearMajorRing();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
-    /* stay in the emptied boss room; portal replaces the giant → corridor */
     bossExitPortal.position.set(kx,1.7,kz);
     bossExitPortal.visible=true;
     bossExitActive=true;
     fovPulse=0.25; boomSfx();
     showRaygunUnlock();
   }
+  function defeatMajor(){ finishMajor(true); }
+  function timeoutMajor(){ finishMajor(false); }
   function exitBossRoom(){
     bossExitActive=false;
     bossExitPortal.visible=false;
@@ -1878,12 +1901,13 @@
       grounded=false; wasAirborne=true;
     }
 
-    /* bounds: circular rim in the hub, walls in the corridor */
+    /* bounds: circular rim in the hub, wider in the boss room, walls in the corridor */
     if(level==='arena'){
+      var boundR=FIELD_OFF?BOSS_ARENA:ARENA;
       var r=Math.hypot(pos.x,pos.z);
-      if(r>ARENA-RADIUS){
+      if(r>boundR-RADIUS){
         var nx=pos.x/r,nz=pos.z/r;
-        pos.x=nx*(ARENA-RADIUS); pos.z=nz*(ARENA-RADIUS);
+        pos.x=nx*(boundR-RADIUS); pos.z=nz*(boundR-RADIUS);
         var vr=vel.x*nx+vel.z*nz;
         if(vr>0){vel.x-=(1+REST)*vr*nx; vel.z-=(1+REST)*vr*nz;}
       }
@@ -1973,7 +1997,7 @@
       /* range cull is level-aware: the arena radius test was silently killing
          every corridor bullet at spawn (they spawn 45 units up-corridor) */
       var oob = level==='arena'
-        ? Math.hypot(b.x,b.z)>ARENA+1.5
+        ? Math.hypot(b.x,b.z)>(FIELD_OFF?BOSS_ARENA:ARENA)+1.5
         : (b.z<CORR_END-6||b.z>CORR_START+2||Math.abs(b.x)>CORR_XMAX+2);
       if(b.age>9||oob){b.alive=false;b.mesh.visible=false;continue;}
       /* pillars block bullets: real cover */
@@ -2172,8 +2196,12 @@
       }
     }
 
-    /* major boss: hub portal → emptied boss room; fight until defeated */
+    /* major boss: hub portal → emptied boss room; 60s fight */
     if(major){
+      major.t-=dt;
+      stormSpan.textContent='MAJOR · '+Math.max(0,Math.ceil(major.t))+'s';
+      if(major.t<=0){ timeoutMajor(); }
+      else {
       /* slow menacing drift toward the player */
       var mjdx=pos.x-major.x, mjdz=pos.z-major.z, mjd=Math.hypot(mjdx,mjdz)||1;
       major.x+=mjdx/mjd*1.5*dt; major.z+=mjdz/mjd*1.5*dt;
@@ -2186,39 +2214,43 @@
           major.volleyWait+=sh.gap;
         }
       }
-      /* expanding ground ring — hop over the crest or get clipped */
-      if(major.ring&&major.ring.active){
-        var mr=major.ring;
-        if(mr.warn>0){
-          mr.warn-=dt;
-          majorRingMesh.position.set(mr.cx,0.12,mr.cz);
-          majorRingMesh.scale.setScalar(mr.r*(1+Math.sin(elapsed*18)*0.04));
-          if(mr.warn<=0){
-            majorRingMesh.material.color.setHex(INK);
-            majorRingMesh.material.opacity=0.95;
-            boomSfx();
-          }
-        } else {
-          mr.r+=mr.speed*dt;
-          majorRingMesh.position.set(mr.cx,0.12,mr.cz);
-          majorRingMesh.scale.setScalar(mr.r);
-          majorRingMesh.material.opacity=Math.max(0.2,0.95*(1-mr.r/mr.maxR));
-          if(!mr.hit&&iframes<=0&&ballLowEnough()){
-            var rd=Math.hypot(pos.x-mr.cx,pos.z-mr.cz);
-            if(Math.abs(rd-mr.r)<0.85+RADIUS){
-              mr.hit=true;
-              takeHit(mr.cx,mr.cz);
+      /* expanding ground rings — hop over each crest or get clipped */
+      if(major.rings&&major.rings.length){
+        for(var ri=major.rings.length-1;ri>=0;ri--){
+          var mr=major.rings[ri];
+          if(!mr.active)continue;
+          var mm=mr.mesh;
+          if(mr.warn>0){
+            mr.warn-=dt;
+            mm.position.set(mr.cx,0.12,mr.cz);
+            mm.scale.setScalar(mr.r*(1+Math.sin(elapsed*18+ri)*0.04));
+            if(mr.warn<=0){
+              mm.material.color.setHex(INK);
+              mm.material.opacity=0.95;
+              boomSfx();
             }
-          }
-          if(mr.r>=mr.maxR){
-            mr.active=false;
-            majorRingMesh.visible=false;
-            major.ring=null;
+          } else {
+            mr.r+=mr.speed*dt;
+            mm.position.set(mr.cx,0.12,mr.cz);
+            mm.scale.setScalar(mr.r);
+            mm.material.opacity=Math.max(0.2,0.95*(1-mr.r/mr.maxR));
+            if(!mr.hit&&iframes<=0&&ballLowEnough()){
+              var rd=Math.hypot(pos.x-mr.cx,pos.z-mr.cz);
+              if(Math.abs(rd-mr.r)<0.85+RADIUS){
+                mr.hit=true;
+                takeHit(mr.cx,mr.cz);
+              }
+            }
+            if(mr.r>=mr.maxR){
+              mr.active=false;
+              mm.visible=false;
+              major.rings.splice(ri,1);
+            }
           }
         }
       }
       var busyVolley=major.volley&&major.volley.length;
-      var busyRing=major.ring&&major.ring.active;
+      var busyRing=major.rings&&major.rings.length>0;
       major.cool-=dt;
       if(major.cool<=0&&major.tele<=0&&!busyVolley&&!busyRing)major.tele=0.4;
       if(major.tele>0){
@@ -2245,7 +2277,7 @@
             major.volley=scored;
             major.volleyWait=0;
             major.cool=0.9;
-          } else { /* expanding jump-over ring */
+          } else { /* expanding jump-over ring(s) */
             startMajorRing();
             major.cool=0.6;
           }
@@ -2259,6 +2291,7 @@
       majorShadow.position.set(major.x+SDX*1.2,0.03,major.z+SDZ*1.2);
       majorShadow.scale.setScalar(mtp);
       if(iframes<=0&&Math.hypot(pos.x-major.x,pos.z-major.z)<RADIUS+3.6)takeHit(major.x,major.z);
+      }
     }
 
     /* boss */
