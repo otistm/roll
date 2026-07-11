@@ -136,14 +136,23 @@
   .board li {
     display:grid; grid-template-columns:28px 1fr auto; gap:10px;
     padding:5px 0; border-bottom:1px solid #eee; color:#111;
+    cursor:pointer; pointer-events:auto;
   }
   .board li:last-child { border-bottom:none; }
   .board li.me { color:#e8262a; }
+  .board li:active { opacity:0.55; }
   .board .rank { color:#999; }
   .board .empty, .board .status {
     text-align:center; color:#999; letter-spacing:0.2em; padding:8px 0;
   }
   .overlay .cta.disabled { opacity:0.35; pointer-events:none; }
+
+  #profileOverlay { z-index:12; gap:16px; }
+  #profileScore { font-size:12px; font-weight:600; letter-spacing:0.28em; }
+  #profileBadgeLabel { font-size:10px; font-weight:600; letter-spacing:0.34em; text-indent:0.34em; color:#555; }
+  #profileBadgeRow { display:flex; flex-wrap:wrap; gap:9px; justify-content:center; max-width:300px; }
+  #profileBadgeRow .badge { width:36px; height:36px; }
+  #profileHint { font-size:10px; letter-spacing:0.2em; color:#999; }
 
   @media (prefers-reduced-motion: reduce) { #knob { transition:none; } }
 </style>
@@ -188,6 +197,15 @@
     <div class="status">LOADING…</div>
   </div>
   <div id="retryCta" class="cta">TAP TO RETRY</div>
+</div>
+
+<div id="profileOverlay" class="overlay hidden">
+  <h1 id="profileName">PLAYER</h1>
+  <div id="profileScore">SCORE 000</div>
+  <div id="profileBadgeLabel">BADGES 0/14</div>
+  <div id="profileBadgeRow"></div>
+  <div id="profileHint">TAP OUTSIDE TO CLOSE</div>
+  <div id="profileClose" class="cta">CLOSE</div>
 </div>
 
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -458,12 +476,15 @@
   for(var bi=0;bi<MAX_BULLETS;bi++){
     var bm=new THREE.Mesh(bulletGeo,bulletMat);
     bm.visible=false; scene.add(bm);
-    bullets.push({mesh:bm,alive:false,x:0,z:0,vx:0,vz:0,age:0});
+    bullets.push({mesh:bm,alive:false,x:0,z:0,vx:0,vz:0,age:0,seek:false});
   }
-  function fireBullet(x,z,vx,vz){
+  function fireBullet(x,z,vx,vz,seek){
     for(var i=0;i<bullets.length;i++){
       var b=bullets[i];
-      if(!b.alive){b.alive=true;b.x=x;b.z=z;b.vx=vx;b.vz=vz;b.age=0;b.mesh.visible=true;return;}
+      if(!b.alive){
+        b.alive=true;b.x=x;b.z=z;b.vx=vx;b.vz=vz;b.age=0;
+        b.seek=!!seek; b.mesh.visible=true; return;
+      }
     }
   }
 
@@ -703,7 +724,7 @@
   var hitStop=0, fovPulse=0, shakeT=0, shakeX=0, shakeZ=0;
   var storm=0, stormTimer=30;
   var boss=null, bossTimer=45;
-  var major=null, majorTimer=90;
+  var major=null, majorDone=false; /* major boss fires once at score 1000 */
   var heartDrop=null, heartCool=0;
 
   /* WebAudio: coin pitch ladder (Mario-style), thud, boom */
@@ -747,7 +768,7 @@
   var submitStatus=document.getElementById('submitStatus');
 
   /* ------------------------- Badge system ------------------------- */
-  /* Session-persistent: earned badges survive retries, not reloads. */
+  /* Profile-persistent: badges save to Firebase + localStorage; never re-earn. */
   var BADGES=[
     {id:'flight',  g:'FF', name:'FIRST FLIGHT'},
     {id:'skyhigh', g:'SH', name:'SKY HIGH'},
@@ -764,13 +785,104 @@
     {id:'heart',   g:'LF', name:'LIFELINE'},
     {id:'speed3',  g:'SD', name:'SPEED DEMON'}
   ];
+  var BADGE_IDS={};
+  for(var bi=0;bi<BADGES.length;bi++) BADGE_IDS[BADGES[bi].id]=BADGES[bi];
+  var BADGE_KEY='roll_player_badges';
   var earned={};
   var toastEl=document.getElementById('toast');
   var hudBadgesEl=document.getElementById('hudBadges');
   var badgeRowEl=document.getElementById('badgeRow');
   var badgeLabelEl=document.getElementById('badgeLabel');
-  var toastQueue=[], toastBusy=false;
+  var profileOv=document.getElementById('profileOverlay');
+  var profileNameEl=document.getElementById('profileName');
+  var profileScoreEl=document.getElementById('profileScore');
+  var profileBadgeLabelEl=document.getElementById('profileBadgeLabel');
+  var profileBadgeRowEl=document.getElementById('profileBadgeRow');
+  var profileClose=document.getElementById('profileClose');
+  var toastQueue=[], toastBusy=false, badgeSyncing=false, badgeDirty=false;
+
   function badgeSfx(){ tone(784,0.1,'sine',0.07); tone(1175,0.18,'sine',0.06); }
+  function earnedBadgeList(){
+    var out=[];
+    for(var i=0;i<BADGES.length;i++) if(earned[BADGES[i].id]) out.push(BADGES[i].id);
+    return out;
+  }
+  function saveLocalBadges(){
+    try{ localStorage.setItem(BADGE_KEY, JSON.stringify(earnedBadgeList())); }catch(e){}
+  }
+  function rebuildHudBadges(){
+    hudBadgesEl.innerHTML='';
+    for(var i=0;i<BADGES.length;i++){
+      if(!earned[BADGES[i].id])continue;
+      var sh=document.createElement('div');
+      sh.className='shield';
+      sh.textContent=BADGES[i].g;
+      sh.title=BADGES[i].name;
+      hudBadgesEl.appendChild(sh);
+    }
+  }
+  function applyBadgeIds(ids, announce){
+    if(!ids||!ids.length)return;
+    var added=false;
+    for(var i=0;i<ids.length;i++){
+      var id=ids[i];
+      if(!BADGE_IDS[id]||earned[id])continue;
+      earned[id]=true;
+      added=true;
+      if(announce){
+        toastQueue.push(BADGE_IDS[id].name);
+        showNextToast();
+        badgeSfx();
+      }
+    }
+    if(added){
+      rebuildHudBadges();
+      saveLocalBadges();
+    }
+  }
+  function loadLocalBadges(){
+    try{
+      var arr=JSON.parse(localStorage.getItem(BADGE_KEY)||'[]');
+      if(arr&&arr.length) applyBadgeIds(arr, false);
+    }catch(e){}
+  }
+  function persistBadges(){
+    saveLocalBadges();
+    if(!fbReady||!db||!fbUser)return;
+    if(badgeSyncing){ badgeDirty=true; return; }
+    badgeSyncing=true;
+    badgeDirty=false;
+    var list=earnedBadgeList();
+    var ref=db.collection('scores').doc(fbUser.uid);
+    ref.get().then(function(doc){
+      var payload;
+      if(doc.exists){
+        var d=doc.data();
+        payload={
+          name:d.name||playerName||'PLAYER',
+          score:d.score|0,
+          badges:list,
+          updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+        };
+        if(sanitizeName(payload.name).length<2) payload.name='PLAYER';
+      } else {
+        var v=validateName(playerName);
+        if(!v.ok){ return null; }
+        payload={
+          name:v.name,
+          score:remoteBest|0,
+          badges:list,
+          updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+        };
+      }
+      return ref.set(payload);
+    }).catch(function(err){
+      console.warn('badge sync', err);
+    }).then(function(){
+      badgeSyncing=false;
+      if(badgeDirty) persistBadges();
+    });
+  }
   function showNextToast(){
     if(toastBusy||!toastQueue.length)return;
     toastBusy=true;
@@ -782,32 +894,46 @@
     },1900);
   }
   function awardBadge(id){
-    if(earned[id])return;
+    if(!BADGE_IDS[id]||earned[id])return; /* already unlocked — never re-earn */
     earned[id]=true;
-    var def=null;
-    for(var i=0;i<BADGES.length;i++)if(BADGES[i].id===id)def=BADGES[i];
-    if(!def)return;
-    toastQueue.push(def.name);
+    toastQueue.push(BADGE_IDS[id].name);
     showNextToast();
     badgeSfx();
-    var sh=document.createElement('div');
-    sh.className='shield';
-    sh.textContent=def.g;
-    hudBadgesEl.appendChild(sh);
+    rebuildHudBadges();
+    persistBadges();
   }
-  function renderBadges(){
+  function renderBadgeGrid(rowEl, labelEl, map){
     var n=0;
-    badgeRowEl.innerHTML='';
+    rowEl.innerHTML='';
     for(var i=0;i<BADGES.length;i++){
       var b=BADGES[i];
       var el=document.createElement('div');
-      el.className='badge'+(earned[b.id]?' got':'');
+      var got=!!(map&&map[b.id]);
+      el.className='badge'+(got?' got':'');
       el.textContent=b.g;
-      badgeRowEl.appendChild(el);
-      if(earned[b.id])n++;
+      el.title=b.name;
+      rowEl.appendChild(el);
+      if(got)n++;
     }
-    badgeLabelEl.textContent='BADGES '+n+'/'+BADGES.length;
+    labelEl.textContent='BADGES '+n+'/'+BADGES.length;
   }
+  function renderBadges(){
+    renderBadgeGrid(badgeRowEl, badgeLabelEl, earned);
+  }
+  function openProfile(row){
+    var map={};
+    var ids=row.badges||[];
+    for(var i=0;i<ids.length;i++) if(BADGE_IDS[ids[i]]) map[ids[i]]=true;
+    profileNameEl.textContent=row.name||'PLAYER';
+    profileScoreEl.textContent='SCORE '+padBoard(row.score|0);
+    renderBadgeGrid(profileBadgeRowEl, profileBadgeLabelEl, map);
+    profileOv.classList.remove('hidden');
+  }
+  function closeProfile(){
+    profileOv.classList.add('hidden');
+  }
+  loadLocalBadges();
+
   /* per-run trackers */
   var everHit=false, stormCoins=0, boostsGrabbed=0;
   var reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -861,13 +987,23 @@
     for(var i=0;i<rows.length;i++){
       var r=rows[i];
       var me=fbUser&&r.uid===fbUser.uid;
-      html+='<li'+(me?' class="me"':'')+'>'+
+      html+='<li data-i="'+i+'"'+(me?' class="me"':'')+'>'+
         '<span class="rank">'+(i+1)+'</span>'+
         '<span class="nm">'+escapeHtml(r.name)+'</span>'+
         '<span class="sc">'+padBoard(r.score)+'</span></li>';
     }
     html+='</ol>';
     el.innerHTML=html;
+  }
+  function bindBoardClicks(el){
+    el.addEventListener('pointerdown',function(e){
+      var li=e.target.closest&&e.target.closest('li[data-i]');
+      if(!li)return;
+      e.stopPropagation();
+      e.preventDefault();
+      var idx=parseInt(li.getAttribute('data-i'),10);
+      if(boardCache[idx]) openProfile(boardCache[idx]);
+    });
   }
   function escapeHtml(s){
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -887,7 +1023,12 @@
         boardCache=[];
         snap.forEach(function(doc){
           var d=doc.data();
-          boardCache.push({uid:doc.id, name:d.name||'???', score:d.score|0});
+          boardCache.push({
+            uid:doc.id,
+            name:d.name||'???',
+            score:d.score|0,
+            badges:Array.isArray(d.badges)?d.badges.slice():[]
+          });
         });
         refreshBoards();
       })
@@ -907,17 +1048,26 @@
       submitStatus.textContent='NAME REQUIRED TO RANK';
       return Promise.resolve();
     }
+    var badges=earnedBadgeList();
     if(s<=remoteBest){
+      /* still sync badges / name even without a new high score */
       submitStatus.textContent=s>0?'BEST STILL '+padBoard(remoteBest):'';
-      return loadLeaderboard();
+      return db.collection('scores').doc(fbUser.uid).set({
+        name:v.name,
+        score:remoteBest|0,
+        badges:badges,
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      }).then(function(){ return loadLeaderboard(); })
+        .catch(function(err){ console.warn('submit', err); return loadLeaderboard(); });
     }
     submitStatus.textContent='SUBMITTING…';
     var ref=db.collection('scores').doc(fbUser.uid);
     return ref.set({
       name:v.name,
       score:s|0,
+      badges:badges,
       updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-    }, {merge:false})
+    })
       .then(function(){
         remoteBest=s|0;
         submitStatus.textContent='NEW BEST · RANKED';
@@ -966,6 +1116,19 @@
               else if(!localStorage.getItem(NAME_KEY)) savePlayerName(d.name);
               nameField.value=playerName;
             }
+            if(Array.isArray(d.badges)&&d.badges.length){
+              applyBadgeIds(d.badges, false);
+            }
+            /* push any local-only badges up to the profile */
+            var local=earnedBadgeList();
+            var remote=d.badges||[];
+            var needSync=false;
+            for(var i=0;i<local.length;i++){
+              if(remote.indexOf(local[i])<0){ needSync=true; break; }
+            }
+            if(needSync) persistBadges();
+          } else if(earnedBadgeList().length){
+            persistBadges();
           }
           return loadLeaderboard();
         })
@@ -979,6 +1142,17 @@
     }
   }
   initFirebase();
+  bindBoardClicks(startBoard);
+  bindBoardClicks(overBoard);
+  profileClose.addEventListener('pointerdown',function(e){
+    e.stopPropagation();
+    closeProfile();
+  });
+  profileOv.addEventListener('pointerdown',function(e){
+    if(e.target===profileClose||e.target.closest&&e.target.closest('#profileClose'))return;
+    if(e.target.closest&&e.target.closest('#profileBadgeRow'))return;
+    closeProfile();
+  });
 
   function tryStart(){
     var v=validateName(nameField.value);
@@ -1024,7 +1198,7 @@
     hitStop=0; fovPulse=0; shakeT=0;
     storm=0; stormTimer=30; stormEl.classList.remove('on');
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
-    major=null; majorTimer=90; FIELD_OFF=false;
+    major=null; majorDone=false; FIELD_OFF=false;
     level='arena'; setCorridorVisible(false); setFieldVisible(true);
     majorMesh.visible=false; majorShadow.visible=false;
     stormSpan.textContent='INK STORM';
@@ -1074,6 +1248,8 @@
   startOv.addEventListener('pointerdown',function(e){
     if(e.target===nameField||e.target.closest&&e.target.closest('#nameField'))return;
     if(e.target===startCta||e.target.closest&&e.target.closest('#startCta'))return;
+    if(e.target.closest&&e.target.closest('.board'))return;
+    if(!profileOv.classList.contains('hidden'))return;
     tryStart();
   });
   retryCta.addEventListener('pointerdown',function(e){
@@ -1084,6 +1260,7 @@
     if(e.target===retryCta||e.target.closest&&e.target.closest('#retryCta'))return;
     if(e.target.closest&&e.target.closest('.board'))return;
     if(e.target.closest&&e.target.closest('#badgeRow'))return;
+    if(!profileOv.classList.contains('hidden'))return;
     tryRetry();
   });
 
@@ -1365,9 +1542,17 @@
     awardBadge('boss');
   }
 
-  /* Major boss event: the arena empties — ramps, pillars, pickups, threats all
-     vanish — and a giant ink sphere holds the center for 30 seconds. */
+  /* Major boss event: score 1000 pulls the player into an emptied arena
+     (boss room) from hub or corridor — ramps/pillars/pickups vanish. */
   function startMajor(){
+    majorDone=true;
+    if(level==='corridor'){
+      clearThreats();
+      setCorridorVisible(false);
+      level='arena';
+    }
+    /* always drop the player at the edge of the boss room */
+    pos.set(0,RADIUS+3,14); vel.set(0,0,0); grounded=false;
     major={t:30,hp:6,cool:1.6,tele:0,flash:0,phase:0,x:0,z:0};
     FIELD_OFF=true; setFieldVisible(false);
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
@@ -1398,7 +1583,7 @@
     }
     spawnShock(major.x,major.z);
     awardBadge(killed?'giant':'survive');
-    major=null; majorTimer=90;
+    major=null;
     FIELD_OFF=false; setFieldVisible(true);
     majorMesh.visible=false; majorShadow.visible=false;
     stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
@@ -1561,6 +1746,15 @@
     for(i=0;i<bullets.length;i++){
       var b=bullets[i];
       if(!b.alive)continue;
+      if(b.seek){ /* boss projectiles home toward the player */
+        var bsp=Math.hypot(b.vx,b.vz)||1;
+        var hx=pos.x-b.x, hz=pos.z-b.z, hd=Math.hypot(hx,hz)||1;
+        var turn=Math.min(1, 5.2*dt);
+        b.vx+=(hx/hd*bsp-b.vx)*turn;
+        b.vz+=(hz/hd*bsp-b.vz)*turn;
+        var ns=Math.hypot(b.vx,b.vz)||1;
+        b.vx*=bsp/ns; b.vz*=bsp/ns;
+      }
       b.x+=b.vx*dt; b.z+=b.vz*dt; b.age+=dt;
       if(b.age>9||Math.hypot(b.x,b.z)>ARENA+1.5){b.alive=false;b.mesh.visible=false;continue;}
       /* pillars block bullets: real cover */
@@ -1687,7 +1881,7 @@
       }
     }
 
-    /* major boss: 90s cycle, 30s event in an emptied arena */
+    /* major boss: once at score 1000 — pulls player into emptied boss room */
     if(major){
       major.t-=dt;
       if(major.t<=0){ endMajor(false); }
@@ -1736,9 +1930,8 @@
         majorShadow.scale.setScalar(mtp);
         if(iframes<=0&&Math.hypot(pos.x-major.x,pos.z-major.z)<RADIUS+3.6)takeHit(major.x,major.z);
       }
-    } else {
-      majorTimer-=dt;
-      if(majorTimer<=0&&level==='arena')startMajor();
+    } else if(!majorDone&&score()>=1000){
+      startMajor();
     }
 
     /* boss */
@@ -1757,18 +1950,18 @@
         boss.tele-=dt;
         if(boss.tele<=0){
           boss.alt=!boss.alt;
-          if(boss.alt){ /* ring volley */
+          if(boss.alt){ /* seeking ring volley */
             var bn=12, boff=Math.random()*Math.PI*2;
             for(var bk=0;bk<bn;bk++){
               var baa=boff+bk/bn*Math.PI*2;
-              fireBullet(boss.x,boss.z,Math.cos(baa)*6.5,Math.sin(baa)*6.5);
+              fireBullet(boss.x,boss.z,Math.cos(baa)*6.5,Math.sin(baa)*6.5,true);
             }
-          } else { /* aimed 3-spread */
+          } else { /* seeking 3-spread */
             var bdx=pos.x-boss.x, bdz=pos.z-boss.z;
             var bbase=Math.atan2(bdz,bdx);
             for(var bk2=-1;bk2<=1;bk2++){
               var baa2=bbase+bk2*0.25;
-              fireBullet(boss.x,boss.z,Math.cos(baa2)*10,Math.sin(baa2)*10);
+              fireBullet(boss.x,boss.z,Math.cos(baa2)*10,Math.sin(baa2)*10,true);
             }
           }
           boss.cool=storm>0?1.3:2.4;
