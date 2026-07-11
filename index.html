@@ -101,30 +101,12 @@
     font-size:9px; font-weight:700; letter-spacing:0.05em; color:#bbb; }
   .badge.got { border-color:#111; background:#111; color:#fff; }
 
-  /* Key: earned in the corridor, lives next to the coin counter */
-  #keySlot { display:none; align-items:center; }
-  #keySlot.got { display:flex; animation:shieldIn 0.35s cubic-bezier(.3,1.8,.4,1); }
-  .keyIcon { font-size:15px; line-height:1; }
-  .keyFly { position:fixed; z-index:30; pointer-events:none; font-size:38px; line-height:1;
-    transition:left 0.6s cubic-bezier(.4,-0.2,.6,1), top 0.6s cubic-bezier(.3,.8,.4,1),
-               font-size 0.6s ease; }
-
-  /* Chest ceremony overlay */
-  #chestOverlay { background:rgba(255,255,255,0.96); z-index:20; }
-  #chestBox { position:relative; width:120px; height:110px; }
-  #chestLid { position:absolute; left:0; top:26px; width:120px; height:34px;
-    background:#fff; border:2px solid #111; border-radius:10px 10px 0 0;
-    transform-origin:50% 100%; transition:transform 0.55s cubic-bezier(.4,1.6,.5,1); z-index:2; }
-  #chestBase { position:absolute; left:0; top:58px; width:120px; height:46px;
-    background:#fff; border:2px solid #111; border-top:none; border-radius:0 0 8px 8px; }
-  #chestBase::after { content:''; position:absolute; left:50px; top:-6px;
-    width:16px; height:20px; background:#f2b705; border:2px solid #111; border-radius:3px; }
-  #chestKey { position:absolute; left:50%; top:52px; transform:translate(-50%,0);
-    font-size:40px; line-height:1;
-    opacity:0; transition:top 0.55s cubic-bezier(.3,1.5,.4,1), opacity 0.3s ease; z-index:1; }
-  #chestOverlay.open #chestLid { transform:rotateX(0) translateY(-34px) rotate(-24deg); }
-  #chestOverlay.open #chestKey { top:-30px; opacity:1; }
-  #chestLabel { margin-top:26px; font-size:11px; font-weight:600; letter-spacing:0.42em;
+  /* Raygun unlock overlay (shown when the giant falls) */
+  #raygunOverlay { background:rgba(255,255,255,0.96); z-index:20; gap:22px; }
+  #raygunUnlockIcon { width:56px; height:56px; border-radius:6px; background:#50ffd2;
+    border:2px solid #111; box-shadow:inset -12px 0 0 #18a0a8;
+    animation:shieldIn 0.45s cubic-bezier(.3,1.8,.4,1); }
+  #raygunLabel { font-size:13px; font-weight:600; letter-spacing:0.42em;
     text-indent:0.42em; }
 
   /* Raygun HUD pip + flying pickup */
@@ -206,7 +188,6 @@
     <div id="hudBadges"></div>
   </div>
   <div id="coins"><div class="coinIcon"></div><span id="coinCount">&times; 00</span></div>
-  <div id="keySlot"><span class="keyIcon">🔑</span></div>
   <div id="raySlot"><div class="rayIcon"></div></div>
   <div id="hearts"><div class="heart"></div><div class="heart"></div><div class="heart"></div></div>
 </div>
@@ -215,13 +196,9 @@
 <div id="storm"><span>INK STORM</span></div>
 <div id="toast"></div>
 
-<div id="chestOverlay" class="overlay hidden">
-  <div id="chestBox">
-    <div id="chestKey"><div class="rayIcon" style="width:36px;height:36px;border-radius:4px;box-shadow:inset -8px 0 0 #18a0a8;"></div></div>
-    <div id="chestLid"></div>
-    <div id="chestBase"></div>
-  </div>
-  <div id="chestLabel">RAYGUN!</div>
+<div id="raygunOverlay" class="overlay hidden">
+  <div id="raygunUnlockIcon"></div>
+  <div id="raygunLabel">RAYGUN UNLOCKED</div>
 </div>
 
 <div id="startOverlay" class="overlay">
@@ -229,7 +206,7 @@
   <input id="nameField" type="text" maxlength="12" autocomplete="off" autocorrect="off"
     autocapitalize="characters" spellcheck="false" placeholder="YOUR NAME" enterkeyhint="done">
   <div id="nameHint"></div>
-  <p>STICK TO MOVE &middot; TAP TO HOP<br>TAP MIDAIR TO POUND<br>DODGE THE INK &middot; EAT THE GOLD<br>BLUE = SPEED &middot; RIDE RAMPS TO FLY<br>SURVIVE 60S &middot; LAUNCH INTO THE PORTAL<br>GAMEPAD &middot; LEFT STICK + A / &#10005;</p>
+  <p>STICK TO MOVE &middot; TAP TO HOP<br>TAP MIDAIR TO POUND<br>DODGE THE INK &middot; EAT THE GOLD<br>BLUE = SPEED &middot; RIDE RAMPS TO FLY<br>SURVIVE 30S &middot; LAUNCH INTO THE BOSS PORTAL<br>GAMEPAD &middot; LEFT STICK + A / &#10005;</p>
   <div id="startCta" class="cta">TAP TO START</div>
   <div class="board" id="startBoard">
     <h2>TOP SCORES</h2>
@@ -243,7 +220,6 @@
   <div id="finalTime">TIME TIL DEATH &middot; 0:00</div>
   <div id="badgeLabel">BADGES 0/14</div>
   <div id="badgeRow"></div>
-  <div id="submitStatus" class="board status" style="text-align:center;width:auto;"></div>
   <div class="board" id="overBoard">
     <h2>TOP SCORES</h2>
     <div class="status">LOADING…</div>
@@ -274,8 +250,8 @@
      hop maxRise 2.25, beam-clear 0.63s, bullet-dodge 0.60s, mound-top safe */
   var G=30, RADIUS=1, ACCEL=54, FRICTION=3.6, MAX_SPEED=15, REST=0.35; /* MAX_SPEED == ACCEL/FRICTION: no air/ground mismatch */
   var BLUE=0x18a0e8, BOOST_MULT=1.6, BOOST_TIME=4; /* speed pad: 1.6x for 4s, keeps clamp==terminal */
-  var RAY=0x50ffd2, RAYGUN_TIME=10; /* unlocked chest powerup: auto-blasts projectiles */
-  var ARENA=26, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=80;
+  var RAY=0x50ffd2, RAYGUN_TIME=10; /* unlocked after defeating the giant: auto-blasts projectiles */
+  var ARENA=26, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=140;
   var INK=0x111111, RED=0xe8262a, GOLD=0xf2b705, WARN=0xbbbbbb;
   var SHADE=0x9a9a9a, SDX=0.848, SDZ=-0.53; /* drop-shadow color + direction (opposite key light) */
   var FIELD_OFF=false;      /* true while the major boss owns the arena: terrain + pillars vanish */
@@ -480,34 +456,13 @@
   hubPortalShadow.visible=false;
   scene.add(hubPortalShadow); fieldMeshes.push(hubPortalShadow);
   var exitPortal=corrReg(makePortal(0,CORR_END));
+  /* Boss-room exit: appears where the giant fell; leads to the climb */
+  var bossExitPortal=makePortal(0,0);
+  bossExitPortal.visible=false;
+  scene.add(bossExitPortal);
+  var bossExitActive=false;
   /* corridor coins: pre-placed weave along the pipe walls */
   var corrCoins=[]; /* built after coin geometry is defined, see buildCorrCoins() */
-  /* the chest: persistent goal at the top of the climb — needs the key */
-  var chestMesh=corrReg(new THREE.Mesh(new THREE.BoxGeometry(1.8,1.2,1.2),
-    new THREE.MeshToonMaterial({color:0xffffff,gradientMap:gradientMap})));
-  chestMesh.add(new THREE.Mesh(new THREE.BoxGeometry(1.92,1.3,1.3),
-    new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
-  var chestBand=new THREE.Mesh(new THREE.BoxGeometry(0.45,1.32,1.32),
-    new THREE.MeshBasicMaterial({color:GOLD}));
-  chestMesh.add(chestBand);
-  chestMesh.position.set(0,0.7,CORR_END);
-  /* mid-corridor key: grab it, then open the chest */
-  var KEY_Z=(CORR_START+CORR_END)*0.5; /* ~-62, halfway up the climb */
-  var keyWorld=corrReg(new THREE.Group());
-  (function(){
-    var head=new THREE.Mesh(new THREE.TorusGeometry(0.45,0.14,10,20),
-      new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
-    head.rotation.y=Math.PI/2;
-    head.position.set(0,0.55,0);
-    var shaft=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.9,0.22),
-      new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
-    shaft.position.set(0,-0.15,0);
-    var bit=new THREE.Mesh(new THREE.BoxGeometry(0.38,0.22,0.22),
-      new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
-    bit.position.set(0.18,-0.5,0);
-    keyWorld.add(head); keyWorld.add(shaft); keyWorld.add(bit);
-    keyWorld.position.set(6.2,1.1,KEY_Z);
-  })();
   /* sliders: ink cubes oscillating across the pipe */
   var sliders=[];
   [ -28,-52,-76,-100 ].forEach(function(sz,idx){
@@ -665,15 +620,8 @@
       c.mesh.position.set(c.x,0,c.z); /* y set per-frame (bob) */
       c.mesh.visible=true;
     }
-    coinIndex=0; coinBlinkT=0; corrPortalActive=false;
-    chestOpened=false;
-    hasKey=false;
-    keySlotEl.classList.remove('got');
-    chestMesh.visible=true;
-    keyAlive=true;
-    keyWorld.visible=true;
-    keyWorld.position.set(6.2,1.1,KEY_Z);
-    exitPortal.visible=false;
+    coinIndex=0; coinBlinkT=0; corrPortalActive=true;
+    exitPortal.visible=true;
   }
   function failCoinSequence(){ /* wrong coin: everything blinks red, then the run resets */
     coinBlinkT=1.1;
@@ -775,7 +723,7 @@
     }
   }
 
-  /* Raygun pickup: cyan barrel (unlocked by opening the climb chest) */
+  /* Raygun pickup: cyan barrel (unlocked by defeating the giant) */
   var rayGunPads=[];
   for(var rgi=0;rgi<2;rgi++){
     var rgm=new THREE.Group();
@@ -795,12 +743,13 @@
     rayGunPads.push({mesh:rgm,shadow:rgsh,alive:false,x:0,z:0,phase:Math.random()*6.28});
   }
   function spawnRaygun(){
-    if(!raygunUnlocked)return;
+    if(!raygunUnlocked||level!=='corridor')return;
     for(var i=0;i<rayGunPads.length;i++){
       var rp=rayGunPads[i];
       if(!rp.alive){
-        var a=Math.random()*Math.PI*2, rr=6+Math.random()*16;
-        rp.x=Math.cos(a)*rr; rp.z=Math.sin(a)*rr; rp.alive=true;
+        rp.x=(Math.random()-0.5)*10;
+        rp.z=Math.max(CORR_END+10, pos.z-(12+Math.random()*36));
+        rp.alive=true;
         rp.mesh.position.set(rp.x,terrainH(rp.x,rp.z)+0.9,rp.z);
         rp.mesh.visible=true; rp.shadow.visible=true;
         rp.shadow.position.set(rp.x+SDX*0.5,terrainH(rp.x,rp.z)+0.02,rp.z+SDZ*0.5);
@@ -867,13 +816,30 @@
     new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.95}));
   bossShadow.rotation.x=-Math.PI/2; bossShadow.visible=false; scene.add(bossShadow);
 
-  /* Major boss: giant ink sphere, owns an emptied arena for 30s */
+  /* Major boss: giant ink sphere, owns an emptied arena until defeated */
   var majorMesh=new THREE.Mesh(new THREE.SphereGeometry(4,40,28),
     new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap}));
   majorMesh.visible=false; scene.add(majorMesh);
   var majorShadow=new THREE.Mesh(new THREE.CircleGeometry(3.6,48),
     new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.95}));
   majorShadow.rotation.x=-Math.PI/2; majorShadow.visible=false; scene.add(majorShadow);
+  /* Expanding ground ring: jump over it or take a hit */
+  var majorRingMesh=new THREE.Mesh(new THREE.RingGeometry(0.82,1.18,64),
+    new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.95,side:THREE.DoubleSide}));
+  majorRingMesh.rotation.x=-Math.PI/2; majorRingMesh.visible=false; scene.add(majorRingMesh);
+  function clearMajorRing(){
+    majorRingMesh.visible=false;
+    if(major) major.ring=null;
+  }
+  function startMajorRing(){
+    major.ring={active:true,warn:0.4,r:2.2,maxR:ARENA+3,speed:16,cx:major.x,cz:major.z,hit:false};
+    majorRingMesh.visible=true;
+    majorRingMesh.material.color.setHex(WARN);
+    majorRingMesh.material.opacity=0.45;
+    majorRingMesh.position.set(major.x,0.12,major.z);
+    majorRingMesh.scale.setScalar(major.ring.r);
+    boomSfx();
+  }
   function setFieldVisible(v){ for(var i=0;i<fieldMeshes.length;i++)fieldMeshes[i].visible=v; }
 
   /* Heart drop: red extruded heart, rare at 1 HP */
@@ -892,7 +858,7 @@
   heartShadow.rotation.x=-Math.PI/2; heartShadow.visible=false; scene.add(heartShadow);
 
   /* ============================ Game state =========================== */
-  var state='start';         // start | play | over | chest
+  var state='start';         // start | play | over | raygun
   var pos=new THREE.Vector3(0,RADIUS,0), vel=new THREE.Vector3();
   var grounded=true, wasAirborne=false;
   var hearts=3, iframes=0, elapsed=0, collected=0, best=0;
@@ -903,10 +869,9 @@
   var storm=0, stormTimer=30;
   var boss=null, bossTimer=45;
   var coinIndex=0, coinBlinkT=0, corrPortalActive=false;
-  var chestOpened=false, hasKey=false, keyAlive=false;
-  var raygunUnlocked=false, raygunT=0, rayFireCool=0, raygunSpawnTimer=14;
-  var major=null, majorDone=false; /* major boss fires once at score 1000 */
-  var portalUnlocked=false;                              /* hub portal: 60s survival */
+  var raygunUnlocked=false, raygunT=0, rayFireCool=0, raygunSpawnTimer=8;
+  var major=null, majorDone=false; /* major boss: enter via hub portal after 30s */
+  var portalUnlocked=false;                              /* hub portal: 30s survival */
   var heartDrop=null, heartCool=0;
 
   /* WebAudio: coin pitch ladder (Mario-style), thud, boom */
@@ -942,8 +907,7 @@
   var finalEl=document.getElementById('finalScore');
   var finalTimeEl=document.getElementById('finalTime');
   var stormEl=document.getElementById('storm');
-  var chestOv=document.getElementById('chestOverlay');
-  var keySlotEl=document.getElementById('keySlot');
+  var chestOv=document.getElementById('raygunOverlay');
   var raySlotEl=document.getElementById('raySlot');
   var stormSpan=stormEl.querySelector('span');
   var nameField=document.getElementById('nameField');
@@ -952,7 +916,6 @@
   var retryCta=document.getElementById('retryCta');
   var startBoard=document.getElementById('startBoard');
   var overBoard=document.getElementById('overBoard');
-  var submitStatus=document.getElementById('submitStatus');
 
   /* ------------------------- Badge system ------------------------- */
   /* Profile-persistent: badges save to Firebase + localStorage; never re-earn. */
@@ -1204,7 +1167,7 @@
     renderBoard(overBoard, boardCache);
   }
   function loadLeaderboard(){
-    if(!db){ setBoardStatus('OFFLINE'); return Promise.resolve(); }
+    if(!db){ setBoardStatus('NO SCORES YET'); return Promise.resolve(); }
     return db.collection('scores').orderBy('score','desc').limit(10).get()
       .then(function(snap){
         boardCache=[];
@@ -1221,24 +1184,16 @@
       })
       .catch(function(err){
         console.warn('leaderboard', err);
-        setBoardStatus('UNAVAILABLE');
+        setBoardStatus('NO SCORES YET');
       });
   }
   function submitScore(s){
-    submitStatus.textContent='';
-    if(!fbReady||!db||!fbUser){
-      submitStatus.textContent='SCORE SAVED LOCALLY';
-      return Promise.resolve();
-    }
+    if(!fbReady||!db||!fbUser) return Promise.resolve();
     var v=validateName(playerName);
-    if(!v.ok){
-      submitStatus.textContent='NAME REQUIRED TO RANK';
-      return Promise.resolve();
-    }
+    if(!v.ok) return Promise.resolve();
     var badges=earnedBadgeList();
     if(s<=remoteBest){
       /* still sync badges / name even without a new high score */
-      submitStatus.textContent=s>0?'BEST STILL '+padBoard(remoteBest):'';
       return db.collection('scores').doc(fbUser.uid).set({
         name:v.name,
         score:remoteBest|0,
@@ -1247,7 +1202,6 @@
       }).then(function(){ return loadLeaderboard(); })
         .catch(function(err){ console.warn('submit', err); return loadLeaderboard(); });
     }
-    submitStatus.textContent='SUBMITTING…';
     var ref=db.collection('scores').doc(fbUser.uid);
     return ref.set({
       name:v.name,
@@ -1257,18 +1211,16 @@
     })
       .then(function(){
         remoteBest=s|0;
-        submitStatus.textContent='NEW BEST · RANKED';
         return loadLeaderboard();
       })
       .catch(function(err){
         console.warn('submit', err);
-        submitStatus.textContent='SUBMIT FAILED';
       });
   }
   function initFirebase(){
     var cfg=window.FIREBASE_CONFIG;
     if(!cfg||!cfg.apiKey||cfg.apiKey==='YOUR_API_KEY'){
-      setBoardStatus('ADD FIREBASE CONFIG');
+      setBoardStatus('NO SCORES YET');
       return;
     }
     try{
@@ -1321,11 +1273,11 @@
         })
         .catch(function(err){
           console.warn('firebase', err);
-          setBoardStatus('AUTH FAILED');
+          setBoardStatus('NO SCORES YET');
         });
     }catch(err){
       console.warn('firebase init', err);
-      setBoardStatus('CONFIG ERROR');
+      setBoardStatus('NO SCORES YET');
     }
   }
   initFirebase();
@@ -1391,19 +1343,19 @@
     storm=0; stormTimer=30; stormEl.classList.remove('on');
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
     major=null; majorDone=false; FIELD_OFF=false;
+    bossExitActive=false; bossExitPortal.visible=false;
     level='arena'; setCorridorVisible(false); setFieldVisible(true);
     coinIndex=0; coinBlinkT=0; corrPortalActive=false; portalUnlocked=false;
-    chestOpened=false; hasKey=false; keyAlive=false;
-    raygunUnlocked=false; raygunT=0; rayFireCool=0; raygunSpawnTimer=14;
-    keySlotEl.classList.remove('got');
+    raygunUnlocked=false; raygunT=0; rayFireCool=0; raygunSpawnTimer=8;
     raySlotEl.classList.remove('got');
-    chestOv.classList.add('hidden'); chestOv.classList.remove('open');
-    var keyFlies=document.querySelectorAll('.keyFly,.rayFly');
+    chestOv.classList.add('hidden');
+    var keyFlies=document.querySelectorAll('.rayFly');
     for(var ki=0;ki<keyFlies.length;ki++)keyFlies[ki].parentNode.removeChild(keyFlies[ki]);
     hubPortal.visible=false; hubPortalShadow.visible=false;
     rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
     rayBolts.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     majorMesh.visible=false; majorShadow.visible=false;
+    clearMajorRing();
     stormSpan.textContent='INK STORM';
     heartDrop=null; heartCool=0; heartMesh.visible=false; heartShadow.visible=false;
     shocks.forEach(function(sh){sh.mesh.visible=false;});
@@ -1428,7 +1380,6 @@
     finalEl.textContent='SCORE '+pad(s)+' \u00B7 BEST '+pad(best);
     finalTimeEl.textContent='TIME TIL DEATH \u00B7 '+fmtTime(elapsed);
     renderBadges();
-    submitStatus.textContent='';
     overOv.classList.remove('hidden');
     submitScore(s);
   }
@@ -1688,11 +1639,9 @@
   }
   function setCorridorVisible(v){
     for(var i=0;i<corrMeshes.length;i++)corrMeshes[i].visible=v;
-    if(v){ /* coins/diamonds/sliders/gates re-show per their alive flags */
+    if(v){ /* coins/diamonds re-show per their alive flags */
       for(var j=0;j<corrCoins.length;j++)corrCoins[j].mesh.visible=corrCoins[j].alive;
       for(var k=0;k<diamonds.length;k++)diamonds[k].mesh.visible=diamonds[k].alive;
-      chestMesh.visible=!chestOpened;
-      keyWorld.visible=keyAlive;
       exitPortal.visible=corrPortalActive;
     }
   }
@@ -1716,12 +1665,13 @@
     pos.set(0,RADIUS,CORR_START-2); vel.set(0,0,0); grounded=true;
     bossTimer=20; /* corridor boss arrives partway up */
     spawnTimer=2;
+    raygunSpawnTimer=6;
     /* one heart waits somewhere on the climb, no timer */
     var cha=Math.random()<0.5?-1:1;
     heartDrop={x:cha*(3+Math.random()*4.5),z:-(30+Math.random()*80),t:999};
     heartMesh.position.set(heartDrop.x,terrainH(heartDrop.x,heartDrop.z)+1,heartDrop.z);
     heartMesh.visible=true;
-    toastQueue.push('FIND THE KEY \u00B7 OPEN THE CHEST'); showNextToast();
+    toastQueue.push(raygunUnlocked?'THE CLIMB \u00B7 RAYGUN READY':'THE CLIMB'); showNextToast();
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
   }
   function returnToHub(){
@@ -1735,74 +1685,20 @@
   }
   function exitCorridor(){ returnToHub(); }
 
-  function pickupCorridorKey(){
-    if(!keyAlive||hasKey)return;
-    keyAlive=false;
-    keyWorld.visible=false;
-    hasKey=true;
-    keySlotEl.classList.add('got');
-    coinBlip(); badgeSfx();
-    toastQueue.push('GOT THE KEY'); showNextToast();
-    /* fly a key emoji from the world into the HUD slot */
-    var kf=document.createElement('div');
-    kf.className='keyFly';
-    kf.textContent='\uD83D\uDD11';
-    projV.set(keyWorld.position.x,keyWorld.position.y,keyWorld.position.z).project(camera);
-    var sx=(projV.x*0.5+0.5)*window.innerWidth;
-    var sy=(-projV.y*0.5+0.5)*window.innerHeight;
-    kf.style.left=sx+'px'; kf.style.top=sy+'px';
-    document.body.appendChild(kf);
-    var r=keySlotEl.getBoundingClientRect();
-    var hud=document.getElementById('coins').getBoundingClientRect();
-    var tx=(r.width?r.left:hud.right+14), ty=(r.width?r.top:hud.top);
-    requestAnimationFrame(function(){requestAnimationFrame(function(){
-      kf.style.left=tx+'px'; kf.style.top=ty+'px';
-      kf.style.fontSize='15px';
-    });});
-    setTimeout(function(){ if(kf.parentNode)kf.parentNode.removeChild(kf); },650);
-  }
-
-  /* Chest ceremony: needs the key. Unlocks the raygun powerup + exit portal. */
-  function openChest(){
-    if(!hasKey||chestOpened)return;
-    chestOpened=true;
-    chestMesh.visible=false;
-    state='chest'; /* update() only runs in 'play': the world freezes */
+  /* Shown when the giant falls: unlocks corridor raygun pickups */
+  function showRaygunUnlock(){
+    state='raygun';
     input.x=0; input.y=0;
-    heartSfx();
+    raygunUnlocked=true;
+    raySlotEl.classList.add('got');
     chestOv.classList.remove('hidden');
-    setTimeout(function(){ chestOv.classList.add('open'); boomSfx(); },350);
-    setTimeout(function(){ /* raygun icon flies toward the HUD */
-      var rf=document.createElement('div');
-      rf.className='rayFly';
-      var cb=document.getElementById('chestKey').getBoundingClientRect();
-      rf.style.left=cb.left+'px'; rf.style.top=cb.top+'px';
-      document.body.appendChild(rf);
-      var r=raySlotEl.getBoundingClientRect();
-      var hud=document.getElementById('coins').getBoundingClientRect();
-      var tx=(r.width?r.left:hud.right+30), ty=(r.width?r.top:hud.top);
-      requestAnimationFrame(function(){requestAnimationFrame(function(){
-        rf.style.left=tx+'px'; rf.style.top=ty+'px';
-        rf.style.width='14px'; rf.style.height='14px';
-      });});
-      setTimeout(function(){
-        if(rf.parentNode)rf.parentNode.removeChild(rf);
-        raygunUnlocked=true;
-        raySlotEl.classList.add('got');
-        coinBlip();
-      },650);
-    },1500);
-    setTimeout(function(){ /* close ceremony, open exit portal */
+    badgeSfx(); boomSfx();
+    setTimeout(function(){
+      if(state!=='raygun')return;
       chestOv.classList.add('hidden');
-      chestOv.classList.remove('open');
       state='play';
-      corrPortalActive=true;
-      exitPortal.visible=true;
-      spawnShock(exitPortal.position.x,exitPortal.position.z);
-      toastQueue.push('RAYGUN UNLOCKED'); showNextToast();
-      setTimeout(function(){ toastQueue.push('PORTAL OPEN'); showNextToast(); },400);
-      boomSfx(); fovPulse=0.25;
-    },2500);
+      toastQueue.push('PORTAL OPEN'); showNextToast();
+    },2200);
   }
 
   function spawnBoss(){
@@ -1840,19 +1736,20 @@
     awardBadge('boss');
   }
 
-  /* Major boss event: score 1000 pulls the player into an emptied arena
-     (boss room) from hub or corridor — ramps/pillars/pickups vanish. */
+  /* Major boss room: hub portal drops you into an emptied arena.
+     Kill the giant → exit portal appears where it fell → back to hub. */
   function startMajor(){
-    majorDone=true;
     if(level==='corridor'){
       clearThreats();
       setCorridorVisible(false);
       level='arena';
     }
+    bossExitActive=false; bossExitPortal.visible=false;
     /* always drop the player at the edge of the boss room */
     pos.set(0,RADIUS+3,14); vel.set(0,0,0); grounded=false;
-    major={t:30,hp:6,cool:1.6,tele:0,flash:0,phase:0,x:0,z:0};
+    major={hp:6,cool:1.6,tele:0,flash:0,phase:0,x:0,z:0,volley:[],volleyWait:0,ring:null};
     FIELD_OFF=true; setFieldVisible(false);
+    clearMajorRing();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     chords.forEach(function(c){c.alive=false;c.mesh.visible=false;});
     sweep.active=false; sweep.mesh.visible=false; spiral=null;
@@ -1865,42 +1762,56 @@
     majorMesh.visible=true; majorShadow.visible=true;
     spawnShock(0,0); spawnShock(0,0);
     hitStop=Math.max(hitStop,0.1); fovPulse=0.3;
+    toastQueue.push('DEFEAT THE GIANT'); showNextToast();
     boomSfx();
   }
-  function endMajor(killed){
-    if(killed){
-      var kx=major.x, kz=major.z;
-      for(var i=0;i<24;i++)(function(k){
-        setTimeout(function(){
-          if(state!=='play')return;
-          combo++;
-          coinScore+=5*Math.min(combo,12);
-          flyCoin(kx+(Math.random()-0.5)*5,4,kz+(Math.random()-0.5)*5);
-          coinBlip(); updateHUD();
-        },k*70);
-      })(i);
-    }
-    spawnShock(major.x,major.z);
-    awardBadge(killed?'giant':'survive');
+  /* Giant exhausted: vanish, leave a climb portal; unlock raygun */
+  function defeatMajor(){
+    var kx=major.x, kz=major.z;
+    for(var i=0;i<24;i++)(function(k){
+      setTimeout(function(){
+        if(state==='over'||state==='start')return;
+        combo++;
+        coinScore+=5*Math.min(combo,12);
+        flyCoin(kx+(Math.random()-0.5)*5,4,kz+(Math.random()-0.5)*5);
+        coinBlip(); updateHUD();
+      },k*70);
+    })(i);
+    spawnShock(kx,kz);
+    awardBadge('giant');
+    majorDone=true;
     major=null;
-    FIELD_OFF=false; setFieldVisible(true);
     majorMesh.visible=false; majorShadow.visible=false;
+    clearMajorRing();
+    bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
+    /* stay in the emptied boss room; portal replaces the giant → corridor */
+    bossExitPortal.position.set(kx,1.7,kz);
+    bossExitPortal.visible=true;
+    bossExitActive=true;
     fovPulse=0.25; boomSfx();
+    showRaygunUnlock();
+  }
+  function exitBossRoom(){
+    bossExitActive=false;
+    bossExitPortal.visible=false;
+    FIELD_OFF=false;
+    hearts=3; updateHUD(); heartSfx();
+    enterCorridor();
   }
   function majorHitByPound(){
     major.hp--; major.flash=0.15;
     hitStop=Math.max(hitStop,0.1);
     for(var i=0;i<3;i++)(function(k){
       setTimeout(function(){
-        if(state!=='play')return;
+        if(state==='over'||state==='start')return;
         combo++;
         coinScore+=5*Math.min(combo,12);
         flyCoin(major?major.x:0,4,major?major.z:0);
         coinBlip(); updateHUD();
       },k*80);
     })(i);
-    if(major.hp<=0)endMajor(true);
+    if(major.hp<=0)defeatMajor();
   }
   function ballLowEnough(){ return pos.y-RADIUS<BEAM_TOP; } /* mound-top + hop both clear */
 
@@ -2022,7 +1933,7 @@
     }
 
     /* threat scheduler: full pressure in the corridor, lighter pressure in the hub
-       (the classic arena patterns escalate across the 60s portal wait) */
+       (classic arena patterns escalate across the 30s portal wait) */
     if(level==='corridor'){
       spawnTimer-=dt;
       if(spawnTimer<=0){
@@ -2052,7 +1963,7 @@
       if(b.seek){ /* boss projectiles home toward the player */
         var bsp=Math.hypot(b.vx,b.vz)||1;
         var hx=pos.x-b.x, hz=pos.z-b.z, hd=Math.hypot(hx,hz)||1;
-        var turn=Math.min(1, 5.2*dt);
+        var turn=Math.min(1, 7.2*dt);
         b.vx+=(hx/hd*bsp-b.vx)*turn;
         b.vz+=(hz/hd*bsp-b.vz)*turn;
         var ns=Math.hypot(b.vx,b.vz)||1;
@@ -2149,10 +2060,10 @@
     if(!major&&level==='arena'){
       boostSpawnTimer-=dt;
       if(boostSpawnTimer<=0){spawnBoost();boostSpawnTimer=11;}
-      if(raygunUnlocked){
-        raygunSpawnTimer-=dt;
-        if(raygunSpawnTimer<=0){spawnRaygun();raygunSpawnTimer=16;}
-      }
+    }
+    if(!major&&level==='corridor'&&raygunUnlocked){
+      raygunSpawnTimer-=dt;
+      if(raygunSpawnTimer<=0){spawnRaygun();raygunSpawnTimer=11;}
     }
 
     /* boost pads: spin + bob + pickup */
@@ -2177,7 +2088,7 @@
       }
     }
 
-    /* raygun pads: spin + bob + pickup (unlocked after chest) */
+    /* raygun pads: spin + bob + pickup (unlocked after giant) */
     for(i=0;i<rayGunPads.length;i++){
       var rp=rayGunPads[i];
       if(!rp.alive)continue;
@@ -2261,57 +2172,93 @@
       }
     }
 
-    /* major boss: once at score 1000 — pulls player into emptied boss room */
+    /* major boss: hub portal → emptied boss room; fight until defeated */
     if(major){
-      major.t-=dt;
-      if(major.t<=0){ endMajor(false); }
-      else {
-        /* slow menacing drift toward the player */
-        var mjdx=pos.x-major.x, mjdz=pos.z-major.z, mjd=Math.hypot(mjdx,mjdz)||1;
-        major.x+=mjdx/mjd*1.5*dt; major.z+=mjdz/mjd*1.5*dt;
-        major.cool-=dt;
-        if(major.cool<=0&&major.tele<=0)major.tele=0.4;
-        if(major.tele>0){
-          major.tele-=dt;
-          if(major.tele<=0){
-            major.phase=(major.phase+1)%3;
-            var mk;
-            if(major.phase===0){ /* dense ring with a gap */
-              var gap=Math.random()*Math.PI*2;
-              for(mk=0;mk<18;mk++){
-                var mra=mk/18*Math.PI*2;
-                var dGap=Math.abs(((mra-gap+Math.PI*3)%(Math.PI*2))-Math.PI);
-                if(dGap>Math.PI-0.55)continue; /* leave an escape arc */
-                fireBullet(major.x,major.z,Math.cos(mra)*7.5,Math.sin(mra)*7.5);
-              }
-            } else if(major.phase===1){ /* aimed 5-spread */
-              var mb=Math.atan2(pos.z-major.z,pos.x-major.x);
-              for(mk=-2;mk<=2;mk++){
-                var msa=mb+mk*0.22;
-                fireBullet(major.x,major.z,Math.cos(msa)*11,Math.sin(msa)*11);
-              }
-            } else { /* twin spiral burst */
-              var mo=Math.random()*Math.PI*2;
-              for(mk=0;mk<10;mk++){
-                var msp=mo+mk*0.5;
-                fireBullet(major.x,major.z,Math.cos(msp)*(5+mk*0.4),Math.sin(msp)*(5+mk*0.4));
-                fireBullet(major.x,major.z,Math.cos(msp+Math.PI)*(5+mk*0.4),Math.sin(msp+Math.PI)*(5+mk*0.4));
-              }
+      /* slow menacing drift toward the player */
+      var mjdx=pos.x-major.x, mjdz=pos.z-major.z, mjd=Math.hypot(mjdx,mjdz)||1;
+      major.x+=mjdx/mjd*1.5*dt; major.z+=mjdz/mjd*1.5*dt;
+      /* release queued shots one-by-one (staggered volleys) */
+      if(major.volley&&major.volley.length){
+        major.volleyWait-=dt;
+        while(major.volley.length&&major.volleyWait<=0){
+          var sh=major.volley.shift();
+          fireBullet(major.x,major.z,sh.vx,sh.vz,!!sh.seek);
+          major.volleyWait+=sh.gap;
+        }
+      }
+      /* expanding ground ring — hop over the crest or get clipped */
+      if(major.ring&&major.ring.active){
+        var mr=major.ring;
+        if(mr.warn>0){
+          mr.warn-=dt;
+          majorRingMesh.position.set(mr.cx,0.12,mr.cz);
+          majorRingMesh.scale.setScalar(mr.r*(1+Math.sin(elapsed*18)*0.04));
+          if(mr.warn<=0){
+            majorRingMesh.material.color.setHex(INK);
+            majorRingMesh.material.opacity=0.95;
+            boomSfx();
+          }
+        } else {
+          mr.r+=mr.speed*dt;
+          majorRingMesh.position.set(mr.cx,0.12,mr.cz);
+          majorRingMesh.scale.setScalar(mr.r);
+          majorRingMesh.material.opacity=Math.max(0.2,0.95*(1-mr.r/mr.maxR));
+          if(!mr.hit&&iframes<=0&&ballLowEnough()){
+            var rd=Math.hypot(pos.x-mr.cx,pos.z-mr.cz);
+            if(Math.abs(rd-mr.r)<0.85+RADIUS){
+              mr.hit=true;
+              takeHit(mr.cx,mr.cz);
             }
-            major.cool=1.6;
+          }
+          if(mr.r>=mr.maxR){
+            mr.active=false;
+            majorRingMesh.visible=false;
+            major.ring=null;
           }
         }
-        if(major.flash>0)major.flash-=dt;
-        majorMesh.material.color.setHex(major.flash>0?0x999999:INK);
-        var mtp=(major.tele>0?1.06+Math.sin(major.tele*30)*0.04:1)*(0.8+0.2*(major.hp/6));
-        majorMesh.scale.setScalar(mtp);
-        majorMesh.position.set(major.x,4*mtp,major.z);
-        majorShadow.position.set(major.x+SDX*1.2,0.03,major.z+SDZ*1.2);
-        majorShadow.scale.setScalar(mtp);
-        if(iframes<=0&&Math.hypot(pos.x-major.x,pos.z-major.z)<RADIUS+3.6)takeHit(major.x,major.z);
       }
-    } else if(!majorDone&&score()>=1000){
-      startMajor();
+      var busyVolley=major.volley&&major.volley.length;
+      var busyRing=major.ring&&major.ring.active;
+      major.cool-=dt;
+      if(major.cool<=0&&major.tele<=0&&!busyVolley&&!busyRing)major.tele=0.4;
+      if(major.tele>0){
+        major.tele-=dt;
+        if(major.tele<=0){
+          major.phase=(major.phase+1)%2;
+          if(major.phase===0){ /* radial projectile burst */
+            var mk, nShot=26, spd=8.2, gapT=0.042, seekN=5;
+            var aim=Math.atan2(pos.z-major.z,pos.x-major.x);
+            var scored=[];
+            for(mk=0;mk<nShot;mk++){
+              var mra=mk/nShot*Math.PI*2;
+              var angDist=Math.abs(((mra-aim+Math.PI*3)%(Math.PI*2))-Math.PI);
+              scored.push({
+                vx:Math.cos(mra)*spd, vz:Math.sin(mra)*spd,
+                gap:gapT, ang:angDist, seek:false
+              });
+            }
+            scored.sort(function(a,b){ return a.ang-b.ang; });
+            for(mk=0;mk<seekN&&mk<scored.length;mk++) scored[mk].seek=true;
+            scored.sort(function(a,b){
+              return Math.atan2(a.vz,a.vx)-Math.atan2(b.vz,b.vx);
+            });
+            major.volley=scored;
+            major.volleyWait=0;
+            major.cool=0.9;
+          } else { /* expanding jump-over ring */
+            startMajorRing();
+            major.cool=0.6;
+          }
+        }
+      }
+      if(major.flash>0)major.flash-=dt;
+      majorMesh.material.color.setHex(major.flash>0?0x999999:INK);
+      var mtp=(major.tele>0?1.06+Math.sin(major.tele*30)*0.04:1)*(0.8+0.2*(major.hp/6));
+      majorMesh.scale.setScalar(mtp);
+      majorMesh.position.set(major.x,4*mtp,major.z);
+      majorShadow.position.set(major.x+SDX*1.2,0.03,major.z+SDZ*1.2);
+      majorShadow.scale.setScalar(mtp);
+      if(iframes<=0&&Math.hypot(pos.x-major.x,pos.z-major.z)<RADIUS+3.6)takeHit(major.x,major.z);
     }
 
     /* boss */
@@ -2403,54 +2350,38 @@
       sh2.mesh.material.opacity=sh2.t/0.35;
     }
 
-    /* --------------- corridor entities + portals --------------- */
+    /* --------------- portals + corridor entities --------------- */
     if(level==='arena'){
-      if(!portalUnlocked&&elapsed>=60){ /* survive 60s to open the way */
+      if(!portalUnlocked&&elapsed>=30){ /* survive 30s to open the way */
         portalUnlocked=true;
         spawnShock(hubPortal.position.x,hubPortal.position.z);
         toastQueue.push('PORTAL OPEN'); showNextToast();
         boomSfx(); fovPulse=0.25;
       }
-      hubPortal.visible=portalUnlocked&&!major;
-      hubPortalShadow.visible=portalUnlocked&&!major&&!FIELD_OFF;
-      if(portalUnlocked){
+      /* hub portal only while the rest area is intact (not in boss room) */
+      hubPortal.visible=portalUnlocked&&!FIELD_OFF;
+      hubPortalShadow.visible=portalUnlocked&&!FIELD_OFF;
+      if(portalUnlocked&&!FIELD_OFF){
         hubPortal.rotation.y+=1.4*dt;
         hubPortal.scale.setScalar(1.25*(1+Math.sin(elapsed*2.5)*0.06));
       }
-      if(portalUnlocked&&!major
+      if(portalUnlocked&&!FIELD_OFF
          &&Math.hypot(pos.x-hubPortal.position.x,pos.z-hubPortal.position.z)<2.2
          &&Math.abs(pos.y-hubPortal.position.y)<1.7){
-        enterCorridor();
+        startMajor();
+      }
+      /* after the giant falls, its portal leads to the climb */
+      if(bossExitActive){
+        bossExitPortal.rotation.y+=1.4*dt;
+        bossExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+        if(state==='play'
+           &&Math.hypot(pos.x-bossExitPortal.position.x,pos.z-bossExitPortal.position.z)<2
+           &&Math.abs(pos.y-bossExitPortal.position.y)<1.8){
+          exitBossRoom();
+        }
       }
     } else {
-      /* mid-corridor key pickup */
-      if(keyAlive){
-        keyWorld.rotation.y+=1.6*dt;
-        keyWorld.position.y=1.1+Math.sin(elapsed*3)*0.1;
-        if(Math.hypot(pos.x-keyWorld.position.x,pos.z-keyWorld.position.z)<RADIUS+1.1
-           &&Math.abs(pos.y-keyWorld.position.y)<1.8){
-          pickupCorridorKey();
-        }
-      }
-      /* persistent chest: needs the key to open */
-      chestMesh.visible=!chestOpened;
-      if(!chestOpened){
-        chestMesh.rotation.y+=0.8*dt;
-        chestMesh.position.y=0.7+Math.sin(elapsed*2.4)*0.06;
-        if(Math.hypot(pos.x-chestMesh.position.x,pos.z-chestMesh.position.z)<RADIUS+1.3){
-            if(hasKey) openChest();
-            else if(iframes<=0){ /* bump: remind the player */
-              thudSfx();
-              squashT=0.16; squashAmt=0.28;
-              vel.z+=4; /* push back down the pipe a bit */
-              if(!toastBusy&&toastQueue.length<1){
-                toastQueue.push('NEED THE KEY'); showNextToast();
-              }
-              iframes=0.45;
-            }
-        }
-      }
-      /* exit portal only exists once the chest is opened */
+      /* exit portal at the top of the climb */
       exitPortal.visible=corrPortalActive;
       if(corrPortalActive){
         exitPortal.rotation.y+=1.4*dt;
