@@ -28,7 +28,7 @@ service cloud.firestore {
       && data.score <= 999999
       && data.updatedAt == request.time
       && data.badges is list
-      && data.badges.size() <= 14;
+      && data.badges.size() <= 32;
   }
 
   function badgesOnlyGrow() {

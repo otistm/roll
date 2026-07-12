@@ -584,14 +584,18 @@
     for(var i=0;i<8;i++){
       var dm=spReg(new THREE.Mesh(dGeo,new THREE.MeshBasicMaterial({color:INK})));
       var tg=spReg(new THREE.Mesh(new THREE.CircleGeometry(0.9,20),
-        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.7})));
+        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.7,
+          depthWrite:false,side:THREE.DoubleSide})));
       tg.rotation.x=-Math.PI/2;
+      tg.renderOrder=1;
       inkDrops.push({mesh:dm,tele:tg,alive:false,x:0,z:0,y:0,th:0});
     }
     for(var j=0;j<10;j++){
       var bm=spReg(new THREE.Mesh(new THREE.CircleGeometry(1.4,22),
-        new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.95})));
+        new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.95,
+          depthWrite:false,side:THREE.DoubleSide})));
       bm.rotation.x=-Math.PI/2;
+      bm.renderOrder=2;
       blotches.push({mesh:bm,alive:false,x:0,z:0,h:0,t:0});
     }
   })();
@@ -607,23 +611,25 @@
         if(pos.y-RADIUS<0.5){ tx=pos.x+(Math.random()-0.5)*4; tz=pos.z+(Math.random()-0.5)*4; th=0; }
         d.alive=true; d.x=tx; d.z=tz; d.th=th; d.y=th+30;
         d.mesh.visible=true; d.mesh.position.set(tx,d.y,tz);
-        d.tele.visible=true; d.tele.position.set(tx,th+0.06,tz); d.tele.scale.setScalar(0.2);
+        d.tele.visible=true; d.tele.position.set(tx,th+0.08,tz); d.tele.scale.setScalar(0.2);
         return;
       }
     }
   }
   function spawnBlotch(x,z,hh){
+    var b=null;
     for(var i=0;i<blotches.length;i++){
-      var b=blotches[i];
-      if(!b.alive){
-        b.alive=true; b.x=x; b.z=z; b.h=hh; b.t=7;
-        b.mesh.visible=true;
-        b.mesh.position.set(x,hh+0.07,z);
-        b.mesh.material.opacity=0.95;
-        b.mesh.scale.setScalar(0.3);
-        return;
-      }
+      if(!blotches[i].alive){ b=blotches[i]; break; }
     }
+    if(!b){ /* pool full: recycle the oldest stain */
+      b=blotches[0];
+      for(var j=1;j<blotches.length;j++) if(blotches[j].t<b.t) b=blotches[j];
+    }
+    b.alive=true; b.x=x; b.z=z; b.h=hh; b.t=7;
+    b.mesh.visible=true;
+    b.mesh.position.set(x,hh+0.2,z);
+    b.mesh.material.opacity=0.95;
+    b.mesh.scale.setScalar(0.3);
   }
 
   /* shared VFX textures (built before ANY Obsidian mesh uses them) */
@@ -1657,22 +1663,30 @@
     var ref=db.collection('scores').doc(fbUser.uid);
     ref.get().then(function(doc){
       var payload;
+      var badgeSet={};
+      for(var bi=0;bi<list.length;bi++) badgeSet[list[bi]]=true;
       if(doc.exists){
         var d=doc.data();
+        var prevBadges=Array.isArray(d.badges)?d.badges:[];
+        for(var pi=0;pi<prevBadges.length;pi++) badgeSet[prevBadges[pi]]=true;
+        var merged=[];
+        for(var mi=0;mi<BADGES.length;mi++) if(badgeSet[BADGES[mi].id]) merged.push(BADGES[mi].id);
         payload={
           name:d.name||playerName||'PLAYER',
-          score:d.score|0,
-          badges:list,
+          score:Math.max(0, Math.min(999999, d.score|0)),
+          badges:merged.slice(0,32),
           updatedAt:firebase.firestore.FieldValue.serverTimestamp()
         };
         if(sanitizeName(payload.name).length<2) payload.name='PLAYER';
       } else {
         var v=validateName(playerName);
         if(!v.ok){ return null; }
+        var created=[];
+        for(var ci=0;ci<BADGES.length;ci++) if(badgeSet[BADGES[ci].id]) created.push(BADGES[ci].id);
         payload={
           name:v.name,
-          score:remoteBest|0,
-          badges:list,
+          score:Math.max(0, Math.min(999999, remoteBest|0)),
+          badges:created.slice(0,32),
           updatedAt:firebase.firestore.FieldValue.serverTimestamp()
         };
       }
@@ -1842,30 +1856,34 @@
     if(!fbReady||!db||!fbUser) return Promise.resolve();
     var v=validateName(playerName);
     if(!v.ok) return Promise.resolve();
-    var badges=earnedBadgeList();
-    if(s<=remoteBest){
-      /* still sync badges / name even without a new high score */
-      return db.collection('scores').doc(fbUser.uid).set({
-        name:v.name,
-        score:remoteBest|0,
-        badges:badges,
-        updatedAt:firebase.firestore.FieldValue.serverTimestamp()
-      }).then(function(){ return loadLeaderboard(); })
-        .catch(function(err){ console.warn('submit', err); return loadLeaderboard(); });
-    }
+    var scoreVal=Math.max(0, Math.min(999999, Math.floor(Number(s)||0)));
+    var badges=earnedBadgeList().slice(0,32);
     var ref=db.collection('scores').doc(fbUser.uid);
-    return ref.set({
-      name:v.name,
-      score:s|0,
-      badges:badges,
-      updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+    /* read-merge-write so we never violate score-only-grows / badges-only-grow */
+    return ref.get().then(function(doc){
+      var prev=doc.exists?doc.data():null;
+      var prevScore=prev?prev.score|0:0;
+      var prevBadges=prev&&Array.isArray(prev.badges)?prev.badges:[];
+      var writeScore=Math.max(scoreVal, prevScore, remoteBest|0);
+      var merged={};
+      for(var i=0;i<prevBadges.length;i++) merged[prevBadges[i]]=true;
+      for(var j=0;j<badges.length;j++) merged[badges[j]]=true;
+      var outBadges=[];
+      for(var k=0;k<BADGES.length;k++) if(merged[BADGES[k].id]) outBadges.push(BADGES[k].id);
+      return ref.set({
+        name:v.name,
+        score:writeScore,
+        badges:outBadges,
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      }).then(function(){
+        remoteBest=writeScore;
+        saveLocalBest(writeScore);
+      });
     })
-      .then(function(){
-        remoteBest=s|0;
-        return loadLeaderboard();
-      })
+      .then(function(){ return loadLeaderboard(); })
       .catch(function(err){
         console.warn('submit', err);
+        return loadLeaderboard();
       });
   }
   function initFirebase(){
@@ -1890,7 +1908,6 @@
         })
         .then(function(user){
           fbUser=user;
-          fbReady=true;
           return db.collection('scores').doc(fbUser.uid).get();
         })
         .then(function(doc){
@@ -1909,6 +1926,7 @@
             if(Array.isArray(d.badges)&&d.badges.length){
               applyBadgeIds(d.badges, false);
             }
+            fbReady=true;
             /* push any local-only badges up to the profile */
             var local=earnedBadgeList();
             var remote=d.badges||[];
@@ -1917,13 +1935,15 @@
               if(remote.indexOf(local[i])<0){ needSync=true; break; }
             }
             if(needSync) persistBadges();
-          } else if(earnedBadgeList().length){
-            persistBadges();
+          } else {
+            fbReady=true;
+            if(earnedBadgeList().length) persistBadges();
           }
           return loadLeaderboard();
         })
         .catch(function(err){
           console.warn('firebase', err);
+          fbReady=!!(db&&fbUser); /* allow submits even if profile read failed */
           setBoardStatus('NO SCORES YET');
         });
     }catch(err){
