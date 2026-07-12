@@ -2166,6 +2166,17 @@
     closeProfile();
   });
 
+  function enterFullscreen(){
+    var cur=document.fullscreenElement||document.webkitFullscreenElement||document.msFullscreenElement;
+    if(cur) return;
+    var el=document.documentElement;
+    var req=el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen;
+    if(!req) return;
+    try{
+      var p=req.call(el);
+      if(p&&typeof p.catch==='function') p.catch(function(){});
+    }catch(err){}
+  }
   function tryStart(){
     var v=validateName(nameField.value);
     nameHint.textContent=v.msg;
@@ -2173,6 +2184,7 @@
     savePlayerName(v.name);
     nameField.value=playerName;
     audioInit();
+    enterFullscreen();
     startOv.classList.add('hidden');
     reset();
     state='play';
@@ -2182,6 +2194,7 @@
   function tryRetry(){
     audioInit();
     closeBadgeInfo();
+    enterFullscreen();
     overOv.classList.add('hidden');
     reset();
     state='play';
