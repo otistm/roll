@@ -74,6 +74,23 @@
   #storm.on { animation:stormPulse 0.6s ease-in-out infinite; }
   @keyframes stormPulse { 0%,100% { opacity:0.15; } 50% { opacity:0.75; } }
   @media (prefers-reduced-motion: reduce) { #storm.on { animation:none; opacity:0.4; } }
+
+  /* THE INKWELL boss HUD */
+  #bossHud { position:fixed; top:calc(env(safe-area-inset-top,0px) + 52px);
+    left:26px; right:26px; z-index:6; pointer-events:none; display:none; }
+  #bossHud.on { display:block; }
+  #bossHudLabels { display:flex; justify-content:space-between; align-items:baseline;
+    font-size:10px; font-weight:600; letter-spacing:0.34em; text-indent:0.34em;
+    color:#111; margin-bottom:6px; }
+  #bossPhase { letter-spacing:0.28em; text-indent:0; color:#555; }
+  #bossHpTrack { position:relative; height:10px; background:rgba(17,17,17,0.12);
+    border:1.5px solid #111; }
+  #bossHpFill { position:absolute; inset:0 auto 0 0; width:100%; background:#111;
+    transition:width 0.12s linear; }
+  .bossTick { position:absolute; top:0; bottom:0; width:2px; background:#fff; }
+  #bossBanner { position:fixed; top:36%; left:0; right:0; text-align:center; z-index:7;
+    pointer-events:none; font-size:22px; font-weight:700; letter-spacing:0.42em;
+    text-indent:0.42em; color:#111; opacity:0; transition:opacity 0.25s; }
   #knob {
     position:absolute; left:50%; top:50%;
     width:52px; height:52px; border-radius:50%; background:#111;
@@ -253,6 +270,15 @@
 
 <div id="stick"><div id="knob"></div></div>
 <div id="storm"><span>INK STORM</span></div>
+<div id="bossHud">
+  <div id="bossHudLabels"><span>THE INKWELL</span><span id="bossPhase">I · SEEP</span></div>
+  <div id="bossHpTrack">
+    <div id="bossHpFill"></div>
+    <div class="bossTick" style="left:33.333%"></div>
+    <div class="bossTick" style="left:66.667%"></div>
+  </div>
+</div>
+<div id="bossBanner"></div>
 <div id="inkMeter"><div id="inkFill"></div></div>
 <div id="toast"></div>
 
@@ -320,7 +346,7 @@
   var G=30, RADIUS=1, ACCEL=54, FRICTION=3.6, MAX_SPEED=15, REST=0.35; /* MAX_SPEED == ACCEL/FRICTION: no air/ground mismatch */
   var BLUE=0x18a0e8, BOOST_MULT=1.6, BOOST_TIME=4; /* speed pad: 1.6x for 4s, keeps clamp==terminal */
   var RAY=0x50ffd2, RAYGUN_TIME=10; /* unlocked after defeating the giant: auto-blasts projectiles */
-  var ARENA=26, BOSS_ARENA=34, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=140;
+  var ARENA=26, BOSS_ARENA=34, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=280;
   var INK=0x111111, RED=0xe8262a, GOLD=0xf2b705, WARN=0xbbbbbb;
   var SHADE=0x9a9a9a, SDX=0.848, SDZ=-0.53; /* drop-shadow color + direction (opposite key light) */
   var FIELD_OFF=false;      /* true while the major boss owns the arena: terrain + pillars vanish */
@@ -1112,21 +1138,41 @@
   /* ============================ Pools ================================ */
   /* Bullets: ink spheres hugging terrain */
   var bulletGeo=new THREE.SphereGeometry(BULLET_R,16,12);
-  var bulletMat=new THREE.MeshBasicMaterial({color:INK});
+  var bulletRingGeo=new THREE.TorusGeometry(BULLET_R+0.18,0.07,8,20);
+  var bulletSeedGeo=new THREE.TorusGeometry(BULLET_R*0.85,0.08,8,20);
   var bullets=[];
   for(var bi=0;bi<MAX_BULLETS;bi++){
-    var bm=new THREE.Mesh(bulletGeo,bulletMat);
+    var bm=new THREE.Mesh(bulletGeo,new THREE.MeshBasicMaterial({color:INK}));
+    var bring=new THREE.Mesh(bulletRingGeo,new THREE.MeshBasicMaterial({color:RED}));
+    bring.rotation.x=Math.PI/2; bring.visible=false; bm.add(bring);
+    var bseed=new THREE.Mesh(bulletSeedGeo,new THREE.MeshBasicMaterial({color:0xffffff}));
+    bseed.rotation.x=Math.PI/2; bseed.visible=false; bm.add(bseed);
     bm.visible=false; scene.add(bm);
-    bullets.push({mesh:bm,alive:false,x:0,z:0,vx:0,vz:0,age:0,seek:false});
+    bullets.push({mesh:bm,ring:bring,seedRim:bseed,alive:false,x:0,z:0,vx:0,vz:0,age:0,
+      seek:false,aimed:false,turn:0,kind:'glob',split:0,splitAt:0,br:BULLET_R,maxAge:9});
   }
-  function fireBullet(x,z,vx,vz,seek){
+  function fireBullet(x,z,vx,vz,opts){
+    var seek=false, aimed=false, turn=0, kind='glob', split=0, splitAt=0, br=BULLET_R, maxAge=9;
+    if(opts===true) seek=true;
+    else if(opts&&typeof opts==='object'){
+      seek=!!opts.seek; aimed=!!opts.aimed; turn=opts.turn||0;
+      kind=opts.kind||'glob'; split=opts.split||0; splitAt=opts.splitAt||0;
+      if(opts.r!=null) br=opts.r;
+      if(opts.maxAge!=null) maxAge=opts.maxAge;
+    }
     for(var i=0;i<bullets.length;i++){
       var b=bullets[i];
       if(!b.alive){
         b.alive=true;b.x=x;b.z=z;b.vx=vx;b.vz=vz;b.age=0;
-        b.seek=!!seek; b.mesh.visible=true; return;
+        b.seek=seek; b.aimed=aimed; b.turn=turn; b.kind=kind;
+        b.split=split; b.splitAt=splitAt; b.br=br; b.maxAge=maxAge;
+        b.mesh.material.color.setHex(INK);
+        b.mesh.scale.setScalar(br/BULLET_R);
+        b.ring.visible=aimed; b.seedRim.visible=kind==='seed';
+        b.mesh.visible=true; return b;
       }
     }
+    return null;
   }
 
   /* Sweep beam: full-diameter bar rotating around center */
@@ -1444,49 +1490,88 @@
     new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.95}));
   bossShadow.rotation.x=-Math.PI/2; bossShadow.visible=false; scene.add(bossShadow);
 
-  /* Major boss: giant ink sphere, owns an emptied arena until defeated */
-  var majorMesh=new THREE.Mesh(new THREE.SphereGeometry(4,40,28),
-    new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap}));
-  majorMesh.visible=false; scene.add(majorMesh);
-  var majorShadow=new THREE.Mesh(new THREE.CircleGeometry(3.6,48),
+  /* Major boss: THE INKWELL — wobbling ink sphere with face (SUMI patterns) */
+  var MAJOR_R=4.2;
+  var majorBodyGeo=new THREE.SphereGeometry(1,48,32);
+  var majorBodyBase=majorBodyGeo.attributes.position.array.slice();
+  var majorBody=new THREE.Mesh(majorBodyGeo,new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap}));
+  var majorGroup=new THREE.Group();
+  majorGroup.add(majorBody);
+  var majorEyeGeo=new THREE.SphereGeometry(1,16,12);
+  var majorEyeMatPaper=new THREE.MeshBasicMaterial({color:0xffffff});
+  var majorEyeMatSeal=new THREE.MeshBasicMaterial({color:RED});
+  var majorEyeL=new THREE.Mesh(majorEyeGeo,majorEyeMatPaper);
+  var majorEyeR=new THREE.Mesh(majorEyeGeo,majorEyeMatPaper);
+  majorEyeL.position.set(-0.36,0.62,0.62); majorEyeL.scale.set(0.16,0.07,0.10);
+  majorEyeR.position.set(0.36,0.62,0.62); majorEyeR.scale.set(0.16,0.07,0.10);
+  var majorMouth=new THREE.Mesh(new THREE.SphereGeometry(1,20,14),new THREE.MeshBasicMaterial({color:0x000000}));
+  var majorMouthRim=new THREE.Mesh(new THREE.TorusGeometry(1,0.12,10,28),new THREE.MeshBasicMaterial({color:0xffffff}));
+  majorMouth.position.set(0,0.28,0.90); majorMouthRim.position.copy(majorMouth.position);
+  majorMouthRim.lookAt(majorMouth.position.clone().multiplyScalar(3));
+  majorGroup.add(majorEyeL); majorGroup.add(majorEyeR); majorGroup.add(majorMouth); majorGroup.add(majorMouthRim);
+  majorGroup.visible=false; scene.add(majorGroup);
+  var majorMesh=majorGroup; /* alias used by reset/cleanup paths */
+  var majorShadow=new THREE.Mesh(new THREE.CircleGeometry(1,48),
     new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.95}));
   majorShadow.rotation.x=-Math.PI/2; majorShadow.visible=false; scene.add(majorShadow);
-  /* Expanding ground rings: jump over them or take a hit (up to 2 at once) */
-  var majorRingMeshes=[];
-  for(var mri=0;mri<2;mri++){
-    var mrm=new THREE.Mesh(new THREE.RingGeometry(0.82,1.18,64),
-      new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.95,side:THREE.DoubleSide}));
-    mrm.rotation.x=-Math.PI/2; mrm.visible=false; scene.add(mrm);
-    majorRingMeshes.push(mrm);
+  /* Phase-3 ink lasers (telegraph → beam), SUMI-style */
+  var majorLaserPool=[];
+  for(var mli=0;mli<4;mli++){
+    var mlg=new THREE.Group();
+    var mlWarn=new THREE.Mesh(new THREE.PlaneGeometry(90,0.4),
+      new THREE.MeshBasicMaterial({color:RED,transparent:true,opacity:0.55,side:THREE.DoubleSide}));
+    mlWarn.rotation.x=-Math.PI/2; mlWarn.position.set(45,0.1,0);
+    var mlBeam=new THREE.Mesh(new THREE.BoxGeometry(90,1.4,1.4),
+      new THREE.MeshBasicMaterial({color:INK}));
+    mlBeam.position.set(45,0.7,0);
+    mlg.add(mlWarn); mlg.add(mlBeam); mlg.visible=false; scene.add(mlg);
+    majorLaserPool.push({g:mlg,warn:mlWarn,beam:mlBeam,alive:false,
+      x:0,z:0,angle:0,warnT:0,life:0,w:1.4,spin:0});
   }
-  function clearMajorRing(){
-    for(var i=0;i<majorRingMeshes.length;i++) majorRingMeshes[i].visible=false;
-    if(major) major.rings=[];
-  }
-  function startMajorRing(){
-    /* randomly 1 or 2 expanding rings; second is delayed + slightly slower */
-    var n=Math.random()<0.5?2:1;
-    major.rings=[];
-    for(var i=0;i<n;i++){
-      var mesh=majorRingMeshes[i];
-      var ring={
-        active:true,
-        warn:0.4+i*0.45,
-        r:2.2,
-        maxR:BOSS_ARENA+3,
-        speed:16-i*2.5,
-        cx:major.x, cz:major.z,
-        hit:false,
-        mesh:mesh
-      };
-      major.rings.push(ring);
-      mesh.visible=true;
-      mesh.material.color.setHex(WARN);
-      mesh.material.opacity=0.45;
-      mesh.position.set(major.x,0.12+i*0.02,major.z);
-      mesh.scale.setScalar(ring.r);
+  function clearMajorLasers(){
+    for(var i=0;i<majorLaserPool.length;i++){
+      majorLaserPool[i].alive=false; majorLaserPool[i].g.visible=false;
     }
-    boomSfx();
+  }
+  /* Player seal-shots (SUMI dual auto-fire) — only active during THE INKWELL */
+  var inkShots=[], inkShotMat=new THREE.MeshBasicMaterial({color:RED});
+  var inkShotGeo=new THREE.BoxGeometry(0.22,0.22,0.75);
+  for(var isi=0;isi<120;isi++){
+    var ism=new THREE.Mesh(inkShotGeo,inkShotMat);
+    ism.visible=false; scene.add(ism);
+    inkShots.push({mesh:ism,alive:false,x:0,y:0,z:0,vx:0,vz:0,age:0});
+  }
+  function clearInkShots(){
+    for(var i=0;i<inkShots.length;i++){
+      inkShots[i].alive=false; inkShots[i].mesh.visible=false;
+    }
+  }
+  function clearMajorRing(){ clearMajorLasers(); clearInkShots(); }
+  function fireInkShot(x,z,vx,vz){
+    for(var i=0;i<inkShots.length;i++){
+      var s=inkShots[i];
+      if(!s.alive){
+        s.alive=true; s.x=x; s.z=z; s.y=Math.max(0.55, pos.y*0.35);
+        s.vx=vx; s.vz=vz; s.age=0;
+        s.mesh.visible=true;
+        s.mesh.position.set(x,s.y,z);
+        s.mesh.rotation.y=Math.atan2(vx,vz);
+        return s;
+      }
+    }
+    return null;
+  }
+  function fireMajorLaser(x,z,angle,spin){
+    for(var i=0;i<majorLaserPool.length;i++){
+      var L=majorLaserPool[i];
+      if(!L.alive){
+        L.alive=true; L.x=x; L.z=z; L.angle=angle; L.spin=spin||0;
+        L.warnT=0.8; L.life=0.55; L.w=1.4;
+        L.g.visible=true; L.warn.visible=true; L.beam.visible=false;
+        return L;
+      }
+    }
+    return null;
   }
   function setFieldVisible(v){ for(var i=0;i<fieldMeshes.length;i++)fieldMeshes[i].visible=v; }
 
@@ -1620,6 +1705,11 @@
   var chestOv=document.getElementById('raygunOverlay');
   var raySlotEl=document.getElementById('raySlot');
   var stormSpan=stormEl.querySelector('span');
+  var bossHudEl=document.getElementById('bossHud');
+  var bossHpFillEl=document.getElementById('bossHpFill');
+  var bossPhaseEl=document.getElementById('bossPhase');
+  var bossBannerEl=document.getElementById('bossBanner');
+  var bossBannerT=0;
   var nameField=document.getElementById('nameField');
   var nameHint=document.getElementById('nameHint');
   var startCta=document.getElementById('startCta');
@@ -2173,6 +2263,8 @@
     majorMesh.visible=false; majorShadow.visible=false;
     clearMajorRing();
     stormSpan.textContent='INK STORM';
+    if(bossHudEl) bossHudEl.classList.remove('on');
+    if(bossBannerEl){ bossBannerEl.style.opacity='0'; bossBannerT=0; }
     heartDrop=null; heartCool=0; heartMesh.visible=false; heartShadow.visible=false;
     shocks.forEach(function(sh){sh.mesh.visible=false;});
     coinsEl.classList.remove('hot'); coinsEl.style.fontSize='';
@@ -2786,6 +2878,8 @@
     bossExitActive=false; bossExitPortal.visible=false;
     majorMesh.visible=false; majorShadow.visible=false;
     clearMajorRing();
+    if(bossHudEl) bossHudEl.classList.remove('on');
+    if(bossBannerEl){ bossBannerEl.style.opacity='0'; bossBannerT=0; }
     setArenaVisible(true);
     pos.set(0,RADIUS+4,0); vel.set(0,0,0); grounded=false;
     lastGroundY=RADIUS;
@@ -2816,6 +2910,8 @@
     bossExitActive=false; bossExitPortal.visible=false;
     majorMesh.visible=false; majorShadow.visible=false;
     clearMajorRing();
+    if(bossHudEl) bossHudEl.classList.remove('on');
+    if(bossBannerEl){ bossBannerEl.style.opacity='0'; bossBannerT=0; }
     obs=null; obsDead=false; inkFill=0;
     if(inkFillEl) inkFillEl.style.width='0%';
     dust.forEach(function(d){d.alive=false;d.mesh.visible=false;});
@@ -2963,8 +3059,175 @@
     awardBadge('boss');
   }
 
-  /* Major boss room: hub portal drops you into an emptied arena for 60s.
-     Kill the giant (or outlast the clock) → climb portal + raygun unlock. */
+  /* Major boss room: THE INKWELL — three-phase danmaku (SUMI), pound to damage */
+  function sayBossBanner(txt,sec){
+    bossBannerEl.textContent=txt||'';
+    bossBannerT=sec==null?1.8:sec;
+    bossBannerEl.style.opacity='1';
+  }
+  function updateBossHud(){
+    if(!major){ bossHudEl.classList.remove('on'); return; }
+    bossHudEl.classList.add('on');
+    bossHpFillEl.style.width=(Math.max(0,major.hp)/major.hpMax*100)+'%';
+    bossPhaseEl.textContent=['','I · SEEP','II · SURGE','III · DELUGE'][major.phase]||'';
+  }
+  function inkAim(){ return Math.atan2(pos.z-major.z, pos.x-major.x); }
+  function inkSpawn(ang,spd,opts){
+    fireBullet(major.x,major.z,Math.cos(ang)*spd,Math.sin(ang)*spd,opts||{});
+  }
+  function inkEvery(f,n,off){
+    off=off||0;
+    return f%n===off && major.prevF%n!==off;
+  }
+  function enterMajorPhase(n){
+    var names=['','SEEP','SURGE','DELUGE'];
+    var kanji=['','I · ','II · ','III · '];
+    major.phase=n; major.phaseT=0; major.prevF=-1; major.invuln=1.85; major.mouth=1.4;
+    bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+    clearMajorLasers();
+    shakeT=Math.max(shakeT,0.35); spawnShock(major.x,major.z); spawnShock(major.x,major.z);
+    sayBossBanner(kanji[n]+names[n]);
+    boomSfx();
+    updateBossHud();
+  }
+  function startMajorDeath(){
+    major.dying=0.001;
+    bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+    clearMajorLasers();
+    shakeT=Math.max(shakeT,0.4);
+    boomSfx();
+  }
+  function checkMajorPhase(){
+    if(!major||major.dying>0) return;
+    if(major.hp<=0){ startMajorDeath(); return; }
+    var th=major.hpMax;
+    if(major.phase===1 && major.hp<=th*2/3) enterMajorPhase(2);
+    else if(major.phase===2 && major.hp<=th/3) enterMajorPhase(3);
+  }
+  function runMajorPhase(dt){
+    if(major.dying>0||major.invuln>0) return;
+    major.phaseT+=dt;
+    var f=Math.floor(major.phaseT*60);
+    var TAU=Math.PI*2;
+    if(major.phase===1){
+      if(inkEvery(f,92,0)){
+        major.mouth=1;
+        var n=22, base=f*0.005+Math.sin(f*0.03)*0.3;
+        for(var i=0;i<n;i++) inkSpawn(base+i*TAU/n, 8.2, {r:0.42});
+      }
+      if(inkEvery(f,150,75)){
+        major.mouth=1;
+        var a=inkAim();
+        for(var j=-2;j<=2;j++) inkSpawn(a+j*0.17, 13, {r:0.32,aimed:true,kind:'drop'});
+      }
+      if(inkEvery(f,260,200)){
+        var n2=26, gap=(Math.random()*n2)|0;
+        for(var k=0;k<n2;k++){
+          if(k===gap||k===(gap+1)%n2) continue;
+          inkSpawn(k*TAU/n2, 5.1, {r:0.48});
+        }
+      }
+    } else if(major.phase===2){
+      if(inkEvery(f,7,0)){
+        var sp=9.0;
+        var a1=f*0.055+Math.sin(f*0.011)*0.25;
+        var a2=-f*0.047;
+        for(var k2=0;k2<2;k2++){
+          inkSpawn(a1+k2*Math.PI, sp, {r:0.36});
+          inkSpawn(a2+k2*Math.PI, sp*0.9, {r:0.36});
+        }
+      }
+      if(inkEvery(f,18,0)){
+        var ang=Math.random()*TAU;
+        var rr=BOSS_ARENA*0.92;
+        var bx=Math.cos(ang)*rr, bz=Math.sin(ang)*rr;
+        var inward=Math.atan2(-bz,-bx)+ (Math.random()-0.5)*0.16;
+        fireBullet(bx,bz,Math.cos(inward)*(7.5+Math.random()*3.5),Math.sin(inward)*(7.5+Math.random()*3.5),
+          {r:0.28,kind:'drop',turn:Math.sin(f*0.05)*0.22});
+      }
+      if(inkEvery(f,120,60)){
+        major.mouth=1;
+        var a3=inkAim();
+        for(var j2=0;j2<3;j2++) inkSpawn(a3+(Math.random()-0.5)*0.1, 14.5+j2*1.8, {r:0.32,aimed:true,kind:'drop'});
+      }
+    } else {
+      if(inkEvery(f,9,0)){
+        var base3=f*0.04+Math.sin(f*0.017)*0.5;
+        for(var k3=0;k3<4;k3++) inkSpawn(base3+k3*TAU/4, 7.2, {r:0.36});
+      }
+      if(inkEvery(f,230,100)){
+        major.mouth=1;
+        var n3=12, gap3=(Math.random()*n3)|0;
+        for(var i3=0;i3<n3;i3++){
+          if(i3===gap3) continue;
+          inkSpawn(i3*TAU/n3, 11, {r:0.55,kind:'seed',split:2,splitAt:0.87});
+        }
+      }
+      if(inkEvery(f,300,220)){
+        major.mouth=1;
+        fireMajorLaser(major.x,major.z,inkAim(),Math.random()<0.5?-0.25:0.25);
+        boomSfx();
+      }
+      if(inkEvery(f,90,45)){
+        inkSpawn(inkAim(), 16, {r:0.28,aimed:true,kind:'drop'});
+      }
+    }
+    major.prevF=f;
+  }
+  function majorDamage(amt, heavy){
+    if(!major||major.dying>0||major.invuln>0) return;
+    major.hp=Math.max(0, major.hp-amt);
+    major.flash=heavy?0.15:0.06;
+    major.mouth=heavy?1:Math.max(major.mouth,0.55);
+    if(heavy){
+      hitStop=Math.max(hitStop,0.1);
+      for(var i=0;i<3;i++)(function(k){
+        setTimeout(function(){
+          if(state==='over'||state==='start'||!major)return;
+          combo++;
+          coinScore+=5*Math.min(combo,12);
+          flyCoin(major.x,4,major.z);
+          coinBlip(); updateHUD();
+        },k*80);
+      })(i);
+    }
+    updateBossHud();
+    checkMajorPhase();
+  }
+  function stepInkShots(dt){
+    if(!major){ clearInkShots(); return; }
+    var hitR=Math.max(0.8, major.r*0.88);
+    for(var i=0;i<inkShots.length;i++){
+      var s=inkShots[i];
+      if(!s.alive)continue;
+      s.x+=s.vx*dt; s.z+=s.vz*dt; s.age+=dt;
+      s.mesh.position.set(s.x,s.y,s.z);
+      if(s.age>2.2||Math.hypot(s.x,s.z)>BOSS_ARENA+4){
+        s.alive=false; s.mesh.visible=false; continue;
+      }
+      if(major.dying===0&&major.invuln<=0){
+        var dx=s.x-major.x, dz=s.z-major.z;
+        if(dx*dx+dz*dz<hitR*hitR){
+          s.alive=false; s.mesh.visible=false;
+          majorDamage(2, false);
+        }
+      }
+    }
+  }
+  function majorAutoFire(dt){
+    if(!major||major.dying>0) return;
+    major.fireCd-=dt;
+    if(major.fireCd>0) return;
+    major.fireCd=7/60; /* SUMI: every 7 frames @ 60fps */
+    var aim=Math.atan2(major.z-pos.z, major.x-pos.x);
+    var spd=44;
+    var ox=Math.cos(aim+Math.PI/2)*0.55;
+    var oz=Math.sin(aim+Math.PI/2)*0.55;
+    var fx=Math.cos(aim)*spd, fz=Math.sin(aim)*spd;
+    /* dual stream from either side of the ball, aimed at the inkwell */
+    fireInkShot(pos.x-ox, pos.z-oz, fx, fz);
+    fireInkShot(pos.x+ox, pos.z+oz, fx, fz);
+  }
   function startMajor(){
     if(level==='corridor'||level==='spiral'){
       clearThreats();
@@ -2973,11 +3236,14 @@
       level='arena';
     }
     bossExitActive=false; bossExitPortal.visible=false;
-    /* always drop the player at the edge of the boss room */
     pos.set(0,RADIUS+3,BOSS_ARENA-10); vel.set(0,0,0); grounded=false;
-    major={hp:6,t:60,cool:1.6,tele:0,flash:0,phase:0,x:0,z:0,volley:[],volleyWait:0,rings:[]};
+    major={
+      hp:1000, hpMax:1000, phase:1, phaseT:0, prevF:-1,
+      invuln:1.0, mouth:0, dying:0, flash:0, fireCd:0.15,
+      x:0, z:-4, tx:0, tz:-4, r:MAJOR_R, t:120
+    };
     FIELD_OFF=true; setFieldVisible(false);
-    clearMajorRing();
+    clearMajorLasers(); clearInkShots();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     chords.forEach(function(c){c.alive=false;c.mesh.visible=false;});
     sweep.active=false; sweep.mesh.visible=false; spiral=null;
@@ -2986,11 +3252,13 @@
     rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
     heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
     boss=null; bossMesh.visible=false; bossShadow.visible=false; bossTimer=45;
-    storm=0; stormSpan.textContent='MAJOR · 60s'; stormEl.classList.add('on');
+    storm=0; stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
     majorMesh.visible=true; majorShadow.visible=true;
-    spawnShock(0,0); spawnShock(0,0);
+    spawnShock(0,-4); spawnShock(0,-4);
     hitStop=Math.max(hitStop,0.1); fovPulse=0.3;
-    toastQueue.push('DEFEAT THE GIANT \u00B7 60s'); showNextToast();
+    sayBossBanner('I · SEEP');
+    updateBossHud();
+    toastQueue.push('THE INKWELL'); showNextToast();
     boomSfx();
   }
   /* Shared exit: clear the giant, open hub return portal, unlock raygun */
@@ -3012,8 +3280,11 @@
     majorDone=true;
     major=null;
     majorMesh.visible=false; majorShadow.visible=false;
-    clearMajorRing();
+    clearMajorLasers();
+    clearInkShots();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+    bossHudEl.classList.remove('on');
+    bossBannerEl.style.opacity='0';
     stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
     bossExitPortal.position.set(kx,1.7,kz);
     bossExitPortal.visible=true;
@@ -3031,18 +3302,7 @@
     returnToHub();
   }
   function majorHitByPound(){
-    major.hp--; major.flash=0.15;
-    hitStop=Math.max(hitStop,0.1);
-    for(var i=0;i<3;i++)(function(k){
-      setTimeout(function(){
-        if(state==='over'||state==='start')return;
-        combo++;
-        coinScore+=5*Math.min(combo,12);
-        flyCoin(major?major.x:0,4,major?major.z:0);
-        coinBlip(); updateHUD();
-      },k*80);
-    })(i);
-    if(major.hp<=0)defeatMajor();
+    majorDamage(40, true);
   }
   function ballLowEnough(){ return pos.y-RADIUS<BEAM_TOP; } /* mound-top + hop both clear */
 
@@ -3232,6 +3492,13 @@
     for(i=0;i<bullets.length;i++){
       var b=bullets[i];
       if(!b.alive)continue;
+      /* seed split (Inkwell phase 3) */
+      if(b.kind==='seed'&&b.splitAt&&b.age+dt>=b.splitAt&&b.age<b.splitAt){
+        var sa=Math.atan2(b.vz,b.vx), ssp=Math.hypot(b.vx,b.vz)||1;
+        fireBullet(b.x,b.z,Math.cos(sa-0.5)*ssp*0.85,Math.sin(sa-0.5)*ssp*0.85,{r:0.32,kind:'drop'});
+        fireBullet(b.x,b.z,Math.cos(sa+0.5)*ssp*0.85,Math.sin(sa+0.5)*ssp*0.85,{r:0.32,kind:'drop'});
+        b.alive=false; b.mesh.visible=false; continue;
+      }
       if(b.seek){ /* boss projectiles home toward the player */
         var bsp=Math.hypot(b.vx,b.vz)||1;
         var hx=pos.x-b.x, hz=pos.z-b.z, hd=Math.hypot(hx,hz)||1;
@@ -3241,32 +3508,45 @@
         var ns=Math.hypot(b.vx,b.vz)||1;
         b.vx*=bsp/ns; b.vz*=bsp/ns;
       }
-      b.x+=b.vx*dt; b.z+=b.vz*dt; b.age+=dt;
+      if(b.turn){
+        var ta=Math.atan2(b.vz,b.vx)+b.turn*dt, ts=Math.hypot(b.vx,b.vz)||1;
+        b.vx=Math.cos(ta)*ts; b.vz=Math.sin(ta)*ts;
+      }
+      if(b.kind==='seed'&&b.splitAt){
+        var sk=Math.max(0.1, 1-b.age/b.splitAt);
+        b.x+=b.vx*dt*sk; b.z+=b.vz*dt*sk;
+      } else {
+        b.x+=b.vx*dt; b.z+=b.vz*dt;
+      }
+      b.age+=dt;
+      if(b.seedRim&&b.seedRim.visible) b.seedRim.rotation.z+=dt*3;
       /* range cull is level-aware: the arena radius test was silently killing
          every corridor bullet at spawn (they spawn 45 units up-corridor) */
       var oob = level==='arena'
         ? Math.hypot(b.x,b.z)>(FIELD_OFF?BOSS_ARENA:ARENA)+1.5
         : (b.z<CORR_END-6||b.z>CORR_START+2||Math.abs(b.x)>CORR_XMAX+2);
-      if(b.age>9||oob){b.alive=false;b.mesh.visible=false;continue;}
+      var maxAge=b.maxAge!=null?b.maxAge:9;
+      if(b.age>maxAge||oob){b.alive=false;b.mesh.visible=false;continue;}
       /* pillars block bullets: real cover */
+      var hitR=b.br!=null?b.br:BULLET_R;
       if(!FIELD_OFF&&level==='arena')for(var pj=0;pj<PILLARS.length;pj++){
         var pl2=PILLARS[pj];
-        if(Math.hypot(b.x-pl2.x,b.z-pl2.z)<pl2.r+BULLET_R){b.alive=false;b.mesh.visible=false;break;}
+        if(Math.hypot(b.x-pl2.x,b.z-pl2.z)<pl2.r+hitR){b.alive=false;b.mesh.visible=false;break;}
       }
       if(!b.alive)continue;
       var by;
       if(level==='arena'){
-        if(terrainH(b.x,b.z)>0.6){b.alive=false;b.mesh.visible=false;continue;} /* absorbed by ramps */
-        by=BULLET_R;
+        if(!FIELD_OFF&&terrainH(b.x,b.z)>0.6){b.alive=false;b.mesh.visible=false;continue;} /* absorbed by ramps */
+        by=hitR;
       } else {
-        by=BULLET_R; /* corridor bullets fly flat in the channel */
+        by=hitR; /* corridor bullets fly flat in the channel */
         if(terrainH(b.x,b.z)>0.9||b.z>CORR_START+2){ /* the walls absorb them */
           b.alive=false;b.mesh.visible=false;continue;
         }
       }
       b.mesh.position.set(b.x,by,b.z);
-      if(iframes<=0&&Math.hypot(pos.x-b.x,pos.z-b.z)<RADIUS+BULLET_R
-         &&Math.abs(pos.y-by)<RADIUS+BULLET_R){
+      if(iframes<=0&&Math.hypot(pos.x-b.x,pos.z-b.z)<RADIUS+hitR
+         &&Math.abs(pos.y-by)<RADIUS+hitR){
         b.alive=false; b.mesh.visible=false;
         takeHit(b.x,b.z);
       }
@@ -3444,102 +3724,111 @@
       }
     }
 
-    /* major boss: hub portal → emptied boss room; 60s fight */
+    /* major boss: THE INKWELL — three-phase danmaku */
     if(major){
       major.t-=dt;
-      stormSpan.textContent='MAJOR · '+Math.max(0,Math.ceil(major.t))+'s';
-      if(major.t<=0){ timeoutMajor(); }
+      if(bossBannerT>0){
+        bossBannerT-=dt;
+        bossBannerEl.style.opacity=String(Math.min(1, bossBannerT/0.35));
+        if(bossBannerT<=0) bossBannerEl.style.opacity='0';
+      }
+      if(major.t<=0 && major.dying===0){ timeoutMajor(); }
       else {
-      /* slow menacing drift toward the player */
-      var mjdx=pos.x-major.x, mjdz=pos.z-major.z, mjd=Math.hypot(mjdx,mjdz)||1;
-      major.x+=mjdx/mjd*1.5*dt; major.z+=mjdz/mjd*1.5*dt;
-      /* release queued shots one-by-one (staggered volleys) */
-      if(major.volley&&major.volley.length){
-        major.volleyWait-=dt;
-        while(major.volley.length&&major.volleyWait<=0){
-          var sh=major.volley.shift();
-          fireBullet(major.x,major.z,sh.vx,sh.vz,!!sh.seek);
-          major.volleyWait+=sh.gap;
+      if(major.invuln>0) major.invuln-=dt;
+      major.mouth=Math.max(0, major.mouth-dt*3);
+
+      /* death dissolve */
+      if(major.dying>0){
+        major.dying+=dt;
+        if(Math.floor(major.dying*10)%2===0 && Math.floor((major.dying-dt)*10)%2!==0){
+          spawnShock(major.x+(Math.random()-0.5)*major.r, major.z+(Math.random()-0.5)*major.r);
+          shakeT=Math.max(shakeT,0.12);
         }
-      }
-      /* expanding ground rings — hop over each crest or get clipped */
-      if(major.rings&&major.rings.length){
-        for(var ri=major.rings.length-1;ri>=0;ri--){
-          var mr=major.rings[ri];
-          if(!mr.active)continue;
-          var mm=mr.mesh;
-          if(mr.warn>0){
-            mr.warn-=dt;
-            mm.position.set(mr.cx,0.12,mr.cz);
-            mm.scale.setScalar(mr.r*(1+Math.sin(elapsed*18+ri)*0.04));
-            if(mr.warn<=0){
-              mm.material.color.setHex(INK);
-              mm.material.opacity=0.95;
-              boomSfx();
-            }
-          } else {
-            mr.r+=mr.speed*dt;
-            mm.position.set(mr.cx,0.12,mr.cz);
-            mm.scale.setScalar(mr.r);
-            mm.material.opacity=Math.max(0.2,0.95*(1-mr.r/mr.maxR));
-            if(!mr.hit&&iframes<=0&&ballLowEnough()){
-              var rd=Math.hypot(pos.x-mr.cx,pos.z-mr.cz);
-              if(Math.abs(rd-mr.r)<0.85+RADIUS){
-                mr.hit=true;
-                takeHit(mr.cx,mr.cz);
-              }
-            }
-            if(mr.r>=mr.maxR){
-              mr.active=false;
-              mm.visible=false;
-              major.rings.splice(ri,1);
+        major.r=MAJOR_R*Math.max(0, 1-major.dying/2.3);
+        if(major.dying>=2.3){ defeatMajor(); }
+        } else {
+          /* sway like SUMI ink sun */
+          var sway=major.phase===3?12:7;
+          major.tx=Math.sin(major.phaseT*0.48+major.phase)*sway;
+          major.tz=(major.phase===3?-1.5:-4)+Math.sin(major.phaseT*0.78)*1.4;
+          major.x+=(major.tx-major.x)*Math.min(1,1.2*dt);
+          major.z+=(major.tz-major.z)*Math.min(1,1.2*dt);
+          runMajorPhase(dt);
+          majorAutoFire(dt);
+        }
+        stepInkShots(dt);
+
+        if(major){
+      /* lasers */
+      for(var mli=0;mli<majorLaserPool.length;mli++){
+        var L=majorLaserPool[mli];
+        if(!L.alive){ L.g.visible=false; continue; }
+        L.g.visible=true;
+        L.g.position.set(L.x,0,L.z);
+        L.g.rotation.y=-L.angle;
+        if(L.warnT>0){
+          L.warnT-=dt;
+          L.warn.visible=true; L.beam.visible=false;
+          L.warn.material.opacity=0.35+0.3*Math.sin(elapsed*20);
+          if(L.warnT<=0){ L.warn.visible=false; L.beam.visible=true; }
+        } else {
+          L.angle+=L.spin*dt;
+          L.g.rotation.y=-L.angle;
+          L.life-=dt;
+          L.warn.visible=false; L.beam.visible=true;
+          if(L.life<=0){ L.alive=false; L.g.visible=false; continue; }
+          if(iframes<=0&&ballLowEnough()){
+            var ldx=pos.x-L.x, ldz=pos.z-L.z;
+            var proj=ldx*Math.cos(L.angle)+ldz*Math.sin(L.angle);
+            if(proj>0){
+              var perp=Math.abs(-ldx*Math.sin(L.angle)+ldz*Math.cos(L.angle));
+              if(perp<L.w*0.5+RADIUS) takeHit(L.x,L.z);
             }
           }
         }
       }
-      var busyVolley=major.volley&&major.volley.length;
-      var busyRing=major.rings&&major.rings.length>0;
-      major.cool-=dt;
-      if(major.cool<=0&&major.tele<=0&&!busyVolley&&!busyRing)major.tele=0.4;
-      if(major.tele>0){
-        major.tele-=dt;
-        if(major.tele<=0){
-          major.phase=(major.phase+1)%2;
-          if(major.phase===0){ /* radial projectile burst */
-            var mk, nShot=26, spd=8.2, gapT=0.042, seekN=5;
-            var aim=Math.atan2(pos.z-major.z,pos.x-major.x);
-            var scored=[];
-            for(mk=0;mk<nShot;mk++){
-              var mra=mk/nShot*Math.PI*2;
-              var angDist=Math.abs(((mra-aim+Math.PI*3)%(Math.PI*2))-Math.PI);
-              scored.push({
-                vx:Math.cos(mra)*spd, vz:Math.sin(mra)*spd,
-                gap:gapT, ang:angDist, seek:false
-              });
-            }
-            scored.sort(function(a,b){ return a.ang-b.ang; });
-            for(mk=0;mk<seekN&&mk<scored.length;mk++) scored[mk].seek=true;
-            scored.sort(function(a,b){
-              return Math.atan2(a.vz,a.vx)-Math.atan2(b.vz,b.vx);
-            });
-            major.volley=scored;
-            major.volleyWait=0;
-            major.cool=0.9;
-          } else { /* expanding jump-over ring(s) */
-            startMajorRing();
-            major.cool=0.6;
-          }
+
+      /* wobbling ink body + face */
+      if(major.flash>0) major.flash-=dt;
+      var bossVis=major.r>0.15;
+      majorGroup.visible=bossVis; majorShadow.visible=bossVis;
+      if(bossVis){
+        var posAttr=majorBodyGeo.attributes.position, base=majorBodyBase, t=elapsed;
+        for(var vi=0;vi<posAttr.count;vi++){
+          var bx=base[vi*3], by=base[vi*3+1], bz=base[vi*3+2];
+          var aa=Math.atan2(bz,bx), ee=Math.asin(Math.max(-1,Math.min(1,by)));
+          var kk=1+0.055*Math.sin(aa*3+t*2)+0.04*Math.sin(ee*5-t*1.4)+0.025*Math.sin(aa*7+ee*3+t*3);
+          posAttr.setXYZ(vi, bx*kk, by*kk, bz*kk);
+        }
+        posAttr.needsUpdate=true;
+        majorBodyGeo.computeVertexNormals();
+        var flick=major.invuln>0 && ((elapsed*12)|0)%2===0;
+        majorBody.material.color.setHex(flick||major.flash>0?0x555555:INK);
+        var hoverY=major.r+0.35+Math.sin(elapsed*1.1)*0.35;
+        majorGroup.position.set(major.x, hoverY, major.z);
+        majorGroup.scale.setScalar(major.r);
+        /* face toward player roughly (+z local → rotate group yaw) */
+        majorGroup.rotation.y=Math.atan2(pos.x-major.x, pos.z-major.z);
+        var eyeH=[1,0.7,0.45][major.phase-1];
+        majorEyeL.scale.set(0.16,0.07*eyeH,0.10);
+        majorEyeR.scale.set(0.16,0.07*eyeH,0.10);
+        majorEyeL.material=majorEyeR.material=(major.phase===3?majorEyeMatSeal:majorEyeMatPaper);
+        var m=Math.min(1,major.mouth), mr=0.30*m+0.02;
+        majorMouth.scale.set(mr, mr*0.75, 0.2);
+        majorMouthRim.scale.setScalar(mr*1.15);
+        var faceOn=major.dying===0;
+        majorMouth.visible=majorMouthRim.visible=faceOn;
+        majorEyeL.visible=majorEyeR.visible=faceOn;
+        majorShadow.position.set(major.x+SDX*1.2,0.03,major.z+SDZ*1.2);
+        majorShadow.scale.setScalar(major.r*0.9);
+      }
+      updateBossHud();
+      if(major.dying===0&&iframes<=0&&Math.hypot(pos.x-major.x,pos.z-major.z)<RADIUS+major.r*0.85)
+        takeHit(major.x,major.z);
         }
       }
-      if(major.flash>0)major.flash-=dt;
-      majorMesh.material.color.setHex(major.flash>0?0x999999:INK);
-      var mtp=(major.tele>0?1.06+Math.sin(major.tele*30)*0.04:1)*(0.8+0.2*(major.hp/6));
-      majorMesh.scale.setScalar(mtp);
-      majorMesh.position.set(major.x,4*mtp,major.z);
-      majorShadow.position.set(major.x+SDX*1.2,0.03,major.z+SDZ*1.2);
-      majorShadow.scale.setScalar(mtp);
-      if(iframes<=0&&Math.hypot(pos.x-major.x,pos.z-major.z)<RADIUS+3.6)takeHit(major.x,major.z);
-      }
+    } else if(bossHudEl.classList.contains('on')){
+      bossHudEl.classList.remove('on');
     }
 
     /* boss */
