@@ -95,11 +95,37 @@
 
   /* Badge row on the game-over screen */
   #badgeLabel { font-size:10px; font-weight:600; letter-spacing:0.34em; text-indent:0.34em; color:#555; }
-  #badgeRow { display:flex; flex-wrap:wrap; gap:9px; justify-content:center; max-width:300px; }
+  #badgeRow { display:flex; flex-wrap:wrap; gap:9px; justify-content:center; max-width:300px;
+    pointer-events:auto; }
   .badge { width:32px; height:32px; border-radius:50%; border:1.5px solid #bbb;
     display:flex; align-items:center; justify-content:center;
-    font-size:9px; font-weight:700; letter-spacing:0.05em; color:#bbb; }
+    font-size:9px; font-weight:700; letter-spacing:0.05em; color:#bbb;
+    cursor:pointer; pointer-events:auto; }
   .badge.got { border-color:#111; background:#111; color:#fff; }
+  .badge.sel { box-shadow:0 0 0 2px #e8262a; }
+
+  /* Small badge criteria card on the resolution screen */
+  #badgeInfo {
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    z-index:14; width:min(280px,86vw); padding:22px 20px 18px;
+    background:#fff; border:1.5px solid #111; text-align:center;
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+    pointer-events:auto; box-shadow:0 12px 40px rgba(0,0,0,0.12);
+  }
+  #badgeInfo.hidden { display:none; }
+  #badgeInfoGlyph { width:40px; height:40px; border-radius:50%; border:1.5px solid #111;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:700; letter-spacing:0.05em; margin-bottom:2px; }
+  #badgeInfoGlyph.got { background:#111; color:#fff; }
+  #badgeInfoGlyph:not(.got) { color:#bbb; border-color:#bbb; }
+  #badgeInfoName { font-size:12px; font-weight:700; letter-spacing:0.34em; text-indent:0.34em; }
+  #badgeInfoHow { font-size:11px; letter-spacing:0.12em; line-height:1.7; color:#555;
+    max-width:240px; }
+  #badgeInfoStatus { font-size:9px; font-weight:600; letter-spacing:0.34em; text-indent:0.34em; color:#999; }
+  #badgeInfoClose { font-size:10px; font-weight:600; letter-spacing:0.34em; margin-left:0.34em;
+    padding:10px 18px; border:1.5px solid #111; border-radius:999px; cursor:pointer; margin-top:4px; }
+
+  #stick.padHide { display:none; }
 
   /* Raygun unlock overlay (shown when the giant falls) */
   #raygunOverlay { background:rgba(255,255,255,0.96); z-index:20; gap:22px; }
@@ -151,8 +177,16 @@
   .overlay p  { font-size:11px; letter-spacing:0.16em; line-height:1.85; color:#555; }
   .overlay .cta { font-size:11px; font-weight:600; letter-spacing:0.42em; margin-left:0.42em;
     padding:14px 26px; border:1.5px solid #111; border-radius:999px; cursor:pointer; }
+  .overlay .cta.padFocus,
+  #badgeInfoClose.padFocus,
+  .badge.padFocus {
+    box-shadow:0 0 0 2px #e8262a;
+  }
   #finalScore { font-size:13px; font-weight:600; letter-spacing:0.3em; color:#111; }
   #finalTime { font-size:10px; font-weight:600; letter-spacing:0.34em; color:#555; }
+  #finalCause { font-size:11px; font-weight:600; letter-spacing:0.28em; text-indent:0.28em; color:#e8262a; }
+  #finalCause.hidden, #finalHigh.hidden { display:none; }
+  #finalHigh { font-size:12px; font-weight:700; letter-spacing:0.34em; text-indent:0.34em; color:#111; }
 
   #nameField {
     width:min(260px,78vw); padding:12px 16px; border:1.5px solid #111; border-radius:0;
@@ -179,7 +213,13 @@
     cursor:pointer; pointer-events:auto;
   }
   .board li:last-child { border-bottom:none; }
-  .board li.me { color:#e8262a; }
+  .board li.padFocus {
+    box-shadow: inset 0 0 0 2px #e8262a;
+    background:rgba(232,38,42,0.06);
+  }
+  #profileClose.padFocus {
+    box-shadow:0 0 0 2px #e8262a;
+  }
   .board li:active { opacity:0.55; }
   .board .rank { color:#999; }
   .board .empty, .board .status {
@@ -235,6 +275,8 @@
 
 <div id="overOverlay" class="overlay hidden">
   <h1>ROLL</h1>
+  <div id="finalCause" class="hidden"></div>
+  <div id="finalHigh" class="hidden"></div>
   <div id="finalScore">SCORE 000 &middot; BEST 000</div>
   <div id="finalTime">TIME TIL DEATH &middot; 0:00</div>
   <div id="badgeLabel">BADGES 0/15</div>
@@ -244,6 +286,14 @@
     <div class="status">LOADING…</div>
   </div>
   <div id="retryCta" class="cta">TAP TO RETRY</div>
+</div>
+
+<div id="badgeInfo" class="hidden">
+  <div id="badgeInfoGlyph"></div>
+  <div id="badgeInfoName"></div>
+  <div id="badgeInfoHow"></div>
+  <div id="badgeInfoStatus"></div>
+  <div id="badgeInfoClose">CLOSE</div>
 </div>
 
 <div id="profileOverlay" class="overlay hidden">
@@ -1461,15 +1511,17 @@
   var grounded=true, wasAirborne=false, lastGroundY=RADIUS;
   var hearts=3, iframes=0, elapsed=0, collected=0, best=0;
   var spawnTimer=1.5, pipTimer=1, spiral=null, dropTimer=1.2;
-  var combo=0, coinScore=0, pounding=false;
+  var combo=0, coinScore=0, scoreBase=0, pounding=false;
   var boostT=0, boostSpawnTimer=8;
   var hitStop=0, fovPulse=0, shakeT=0, shakeX=0, shakeZ=0;
   var storm=0, stormTimer=30;
   var boss=null, bossTimer=45;
   var coinIndex=0, coinBlinkT=0, corrPortalActive=false;
   var raygunUnlocked=false, raygunT=0, rayFireCool=0, raygunSpawnTimer=8;
-  var major=null, majorDone=false; /* major boss: enter via hub portal after 30s */
-  var portalUnlocked=false;                              /* hub portal: 30s survival */
+  var major=null, majorDone=false; /* major boss: hub seq step 1 */
+  var portalUnlocked=false;        /* hub ramp portal: 30s after each hub arrival */
+  var hubSeq=0;                    /* 0 nautilus, 1 giant, 2 corridor, 3 obsidian */
+  var hubTimer=0;                  /* time spent in hub rest this visit */
   var obs=null, obsY=OBS_FLOAT, obsX=0, obsZ=0, inkFill=0, INK_CAP=6, obsDead=false;
   var lastInkT=-99, inkDecayT=0;
   var heartDrop=null, heartCool=0;
@@ -1560,6 +1612,8 @@
   var overOv=document.getElementById('overOverlay');
   var finalEl=document.getElementById('finalScore');
   var finalTimeEl=document.getElementById('finalTime');
+  var finalCauseEl=document.getElementById('finalCause');
+  var finalHighEl=document.getElementById('finalHigh');
   var stormEl=document.getElementById('storm');
   var inkMeterEl=document.getElementById('inkMeter');
   var inkFillEl=document.getElementById('inkFill');
@@ -1576,21 +1630,21 @@
   /* ------------------------- Badge system ------------------------- */
   /* Profile-persistent: badges save to Firebase + localStorage; never re-earn. */
   var BADGES=[
-    {id:'flight',  g:'FF', name:'FIRST FLIGHT'},
-    {id:'skyhigh', g:'SH', name:'SKY HIGH'},
-    {id:'slayer',  g:'OB', name:'OBSIDIAN SLAYER'},
-    {id:'combo8',  g:'C8', name:'RED HOT'},
-    {id:'combo12', g:'CX', name:'MAX COMBO'},
-    {id:'boss',    g:'BB', name:'BOSS BREAKER'},
-    {id:'giant',   g:'GS', name:'GIANT SLAYER'},
-    {id:'survive', g:'SV', name:'SURVIVOR'},
-    {id:'stormer', g:'SC', name:'STORM CHASER'},
-    {id:'clean60', g:'UT', name:'UNTOUCHABLE'},
-    {id:'s100',    g:'C',  name:'CENTURION'},
-    {id:'s500',    g:'D',  name:'HIGH ROLLER'},
-    {id:'sweep',   g:'SW', name:'SWEEPER'},
-    {id:'heart',   g:'LF', name:'LIFELINE'},
-    {id:'speed3',  g:'SD', name:'SPEED DEMON'}
+    {id:'flight',  g:'FF', name:'FIRST FLIGHT', how:'Launch off a hub ramp into the air.'},
+    {id:'skyhigh', g:'SH', name:'SKY HIGH', how:'Reach a height of 9.5 or more outside the Nautilus.'},
+    {id:'slayer',  g:'OB', name:'OBSIDIAN SLAYER', how:'Defeat THE OBSIDIAN with ground pounds.'},
+    {id:'combo8',  g:'C8', name:'RED HOT', how:'Reach a coin combo of x8 in one run.'},
+    {id:'combo12', g:'CX', name:'MAX COMBO', how:'Reach a coin combo of x12 in one run.'},
+    {id:'boss',    g:'BB', name:'BOSS BREAKER', how:'Pop a corridor ink boss with ground pounds.'},
+    {id:'giant',   g:'GS', name:'GIANT SLAYER', how:'Defeat the giant in the boss room.'},
+    {id:'survive', g:'SV', name:'SURVIVOR', how:'Outlast the giant\'s 60 second clock.'},
+    {id:'stormer', g:'SC', name:'STORM CHASER', how:'Collect 5 coins during a single Ink Storm.'},
+    {id:'clean60', g:'UT', name:'UNTOUCHABLE', how:'Survive 60 seconds without taking a hit.'},
+    {id:'s100',    g:'C',  name:'CENTURION', how:'Reach a score of 100 in one run.'},
+    {id:'s500',    g:'D',  name:'HIGH ROLLER', how:'Reach a score of 500 in one run.'},
+    {id:'sweep',   g:'SW', name:'SWEEPER', how:'Clear 6 bullets with a single ground pound.'},
+    {id:'heart',   g:'LF', name:'LIFELINE', how:'Pick up a heart drop to restore a life.'},
+    {id:'speed3',  g:'SD', name:'SPEED DEMON', how:'Grab 3 blue speed pads in one run.'}
   ];
   var BADGE_IDS={};
   for(var bi=0;bi<BADGES.length;bi++) BADGE_IDS[BADGES[bi].id]=BADGES[bi];
@@ -1600,6 +1654,12 @@
   var hudBadgesEl=document.getElementById('hudBadges');
   var badgeRowEl=document.getElementById('badgeRow');
   var badgeLabelEl=document.getElementById('badgeLabel');
+  var badgeInfoEl=document.getElementById('badgeInfo');
+  var badgeInfoGlyph=document.getElementById('badgeInfoGlyph');
+  var badgeInfoName=document.getElementById('badgeInfoName');
+  var badgeInfoHow=document.getElementById('badgeInfoHow');
+  var badgeInfoStatus=document.getElementById('badgeInfoStatus');
+  var badgeInfoClose=document.getElementById('badgeInfoClose');
   var profileOv=document.getElementById('profileOverlay');
   var profileNameEl=document.getElementById('profileName');
   var profileScoreEl=document.getElementById('profileScore');
@@ -1717,35 +1777,86 @@
     rebuildHudBadges();
     persistBadges();
   }
-  function renderBadgeGrid(rowEl, labelEl, map){
+  function openBadgeInfo(def, got){
+    if(!badgeInfoEl||!def)return;
+    badgeInfoGlyph.textContent=def.g;
+    badgeInfoGlyph.classList.toggle('got', !!got);
+    badgeInfoName.textContent=def.name;
+    badgeInfoHow.textContent=def.how||'';
+    badgeInfoStatus.textContent=got?'EARNED':'LOCKED';
+    menuFocusBeforeInfo=menuFocusIdx;
+    badgeInfoEl.classList.remove('hidden');
+    menuFocusIdx=0;
+    applyMenuFocus();
+  }
+  function closeBadgeInfo(){
+    if(!badgeInfoEl||badgeInfoEl.classList.contains('hidden'))return;
+    badgeInfoEl.classList.add('hidden');
+    if(badgeRowEl){
+      var kids=badgeRowEl.querySelectorAll('.badge.sel');
+      for(var k=0;k<kids.length;k++) kids[k].classList.remove('sel');
+    }
+    if(profileBadgeRowEl){
+      var pk=profileBadgeRowEl.querySelectorAll('.badge.sel');
+      for(var p=0;p<pk.length;p++) pk[p].classList.remove('sel');
+    }
+    menuFocusIdx=menuFocusBeforeInfo;
+    applyMenuFocus();
+  }
+  function renderBadgeGrid(rowEl, labelEl, map, selectable){
     var n=0;
     rowEl.innerHTML='';
     for(var i=0;i<BADGES.length;i++){
-      var b=BADGES[i];
-      var el=document.createElement('div');
-      var got=!!(map&&map[b.id]);
-      el.className='badge'+(got?' got':'');
-      el.textContent=b.g;
-      el.title=b.name;
-      rowEl.appendChild(el);
-      if(got)n++;
+      (function(b, idx){
+        var el=document.createElement('div');
+        var got=!!(map&&map[b.id]);
+        el.className='badge'+(got?' got':'');
+        el.textContent=b.g;
+        el.title=b.name;
+        el.setAttribute('data-badge', b.id);
+        el.setAttribute('data-idx', String(idx));
+        if(selectable){
+          el.addEventListener('pointerdown', function(e){
+            e.stopPropagation();
+            e.preventDefault();
+            var kids=rowEl.querySelectorAll('.badge');
+            for(var k=0;k<kids.length;k++) kids[k].classList.toggle('sel', kids[k]===el);
+            openBadgeInfo(b, el.classList.contains('got'));
+          });
+        }
+        rowEl.appendChild(el);
+        if(got)n++;
+      })(BADGES[i], i);
     }
     labelEl.textContent='BADGES '+n+'/'+BADGES.length;
   }
   function renderBadges(){
-    renderBadgeGrid(badgeRowEl, badgeLabelEl, earned);
+    if(badgeInfoEl&&!badgeInfoEl.classList.contains('hidden')) closeBadgeInfo();
+    else if(badgeInfoEl) badgeInfoEl.classList.add('hidden');
+    renderBadgeGrid(badgeRowEl, badgeLabelEl, earned, true);
+    menuFocusIdx=0;
+    applyMenuFocus();
   }
+  var profileBadgeMap={};
+  var menuFocusBeforeProfile=0;
   function openProfile(row){
-    var map={};
+    profileBadgeMap={};
     var ids=row.badges||[];
-    for(var i=0;i<ids.length;i++) if(BADGE_IDS[ids[i]]) map[ids[i]]=true;
+    for(var i=0;i<ids.length;i++) if(BADGE_IDS[ids[i]]) profileBadgeMap[ids[i]]=true;
     profileNameEl.textContent=row.name||'PLAYER';
     profileScoreEl.textContent='SCORE '+padBoard(row.score|0);
-    renderBadgeGrid(profileBadgeRowEl, profileBadgeLabelEl, map);
+    renderBadgeGrid(profileBadgeRowEl, profileBadgeLabelEl, profileBadgeMap, true);
+    menuFocusBeforeProfile=menuFocusIdx;
     profileOv.classList.remove('hidden');
+    menuFocusIdx=0;
+    applyMenuFocus();
   }
   function closeProfile(){
+    if(profileOv.classList.contains('hidden'))return;
+    if(badgeInfoEl&&!badgeInfoEl.classList.contains('hidden')) closeBadgeInfo();
     profileOv.classList.add('hidden');
+    menuFocusIdx=menuFocusBeforeProfile;
+    applyMenuFocus();
   }
   loadLocalBadges();
 
@@ -1830,6 +1941,7 @@
   function refreshBoards(){
     renderBoard(startBoard, boardCache);
     renderBoard(overBoard, boardCache);
+    applyMenuFocus();
   }
   function loadLeaderboard(){
     if(!db){ setBoardStatus('NO SCORES YET'); return Promise.resolve(); }
@@ -1974,16 +2086,35 @@
     startOv.classList.add('hidden');
     reset();
     state='play';
+    clearMenuFocus();
     return true;
   }
   function tryRetry(){
     audioInit();
+    closeBadgeInfo();
     overOv.classList.add('hidden');
     reset();
     state='play';
+    clearMenuFocus();
   }
 
-  function score(){ return Math.floor(elapsed)+coinScore; }
+  function score(){ return Math.max(0, Math.floor(elapsed)+coinScore-scoreBase); }
+  function resetRunScore(){
+    /* keep the run clock, but banked points drop to zero */
+    scoreBase=Math.floor(elapsed)+coinScore;
+    coinScore=0;
+    combo=0;
+    updateHUD();
+  }
+  function bankDeathScore(){
+    var s=score();
+    var isNewHigh=s>best;
+    if(isNewHigh){
+      saveLocalBest(s);
+      submitScore(s);
+    }
+    return {score:s, isNewHigh:isNewHigh};
+  }
   function pad(n){ return n>999?''+n:('00'+n).slice(-3); }
   function fmtTime(t){
     var tm=Math.floor(t);
@@ -2005,7 +2136,7 @@
     pos.set(0,RADIUS+5,0); vel.set(0,0,0);
     grounded=false; hearts=3; iframes=0; elapsed=0; collected=0;
     spawnTimer=1.5; pipTimer=0.5; spiral=null; squashT=0;
-    combo=0; coinScore=0; pounding=false;
+    combo=0; coinScore=0; scoreBase=0; pounding=false;
     boostT=0; boostSpawnTimer=8;
     everHit=false; stormCoins=0; boostsGrabbed=0;
     boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
@@ -2029,7 +2160,8 @@
     shards.forEach(function(sh){sh.alive=false;sh.mesh.visible=false;});
     inkDrops.forEach(function(d){d.alive=false;d.mesh.visible=false;d.tele.visible=false;});
     blotches.forEach(function(b){b.alive=false;b.mesh.visible=false;});
-    coinIndex=0; coinBlinkT=0; corrPortalActive=false; portalUnlocked=false;
+    coinIndex=0; coinBlinkT=0; corrPortalActive=false;
+    portalUnlocked=false; hubSeq=0; hubTimer=0;
     raygunUnlocked=false; raygunT=0; rayFireCool=0; raygunSpawnTimer=8;
     raySlotEl.classList.remove('got');
     chestOv.classList.add('hidden');
@@ -2058,15 +2190,37 @@
     updateHUD();
   }
 
-  function gameOver(){
+  function gameOver(opts){
+    opts=opts||{};
     state='over';
     var s=score();
+    var isNewHigh=s>best;
     saveLocalBest(s);
+    if(finalCauseEl){
+      if(opts.hubDeath){
+        finalCauseEl.textContent='YOU DIED IN THE HUB';
+        finalCauseEl.classList.remove('hidden');
+      } else {
+        finalCauseEl.textContent='';
+        finalCauseEl.classList.add('hidden');
+      }
+    }
+    if(finalHighEl){
+      if(isNewHigh){
+        finalHighEl.textContent='NEW HIGH SCORE \u00B7 '+pad(s);
+        finalHighEl.classList.remove('hidden');
+      } else {
+        finalHighEl.textContent='';
+        finalHighEl.classList.add('hidden');
+      }
+    }
     finalEl.textContent='SCORE '+pad(s)+' \u00B7 BEST '+pad(best);
     finalTimeEl.textContent='TIME TIL DEATH \u00B7 '+fmtTime(elapsed);
     renderBadges();
     overOv.classList.remove('hidden');
     submitScore(s);
+    menuFocusIdx=0;
+    applyMenuFocus();
   }
 
   nameField.addEventListener('pointerdown',function(e){ e.stopPropagation(); });
@@ -2100,9 +2254,16 @@
     if(e.target===retryCta||e.target.closest&&e.target.closest('#retryCta'))return;
     if(e.target.closest&&e.target.closest('.board'))return;
     if(e.target.closest&&e.target.closest('#badgeRow'))return;
+    if(e.target.closest&&e.target.closest('#badgeInfo'))return;
+    if(!badgeInfoEl.classList.contains('hidden')){ closeBadgeInfo(); return; }
     if(!profileOv.classList.contains('hidden'))return;
     tryRetry();
   });
+  badgeInfoClose.addEventListener('pointerdown',function(e){
+    e.stopPropagation();
+    closeBadgeInfo();
+  });
+  badgeInfoEl.addEventListener('pointerdown',function(e){ e.stopPropagation(); });
 
   /* ============================ Joystick ============================= */
   var stick=document.getElementById('stick');
@@ -2138,6 +2299,7 @@
 
   stick.addEventListener('pointerdown',function(e){
     if(activeId!==null)return;
+    setStickPadHide(false); /* touch stick wins — show on-screen stick again */
     activeId=e.pointerId; stick.classList.add('live');
     stick.setPointerCapture(e.pointerId);
     flickHist=[]; updateFromPointer(e); e.preventDefault();
@@ -2172,35 +2334,221 @@
   });
 
   /* Gamepad: left stick moves; A/Cross (button 0) or X/Square (button 2) hops.
-     Edge-triggered so holding the button doesn't machine-gun hops.
-     Runs after keyboardInput so an active stick wins the input for that frame. */
-  var padPrevJump=false, gamepadBlocked=false;
+     Menus: D-pad / stick navigates CTA, badges, leaderboard, and profiles. */
+  var padPrevJump=false, gamepadBlocked=false, padUiHidden=false, padMode=false;
+  var menuFocusIdx=0, menuFocusBeforeInfo=0;
+  var padPrevNav={u:false,d:false,l:false,r:false};
+  var padPrevConfirm=false, padPrevBack=false;
+
+  function activeBoardEl(){
+    if(state==='start') return startBoard;
+    if(state==='over') return overBoard;
+    return null;
+  }
+  function getMenuTargets(){
+    var targets=[];
+    if(badgeInfoEl&&!badgeInfoEl.classList.contains('hidden')){
+      targets.push({type:'badgeClose'});
+      return targets;
+    }
+    if(profileOv&&!profileOv.classList.contains('hidden')){
+      if(profileBadgeRowEl){
+        var pb=profileBadgeRowEl.querySelectorAll('.badge');
+        for(var i=0;i<pb.length;i++) targets.push({type:'profileBadge', i:i});
+      }
+      targets.push({type:'profileClose'});
+      return targets;
+    }
+    if(state==='start'){
+      targets.push({type:'cta'});
+      var srows=startBoard.querySelectorAll('li[data-i]');
+      for(var s=0;s<srows.length;s++) targets.push({type:'board', i:s});
+      return targets;
+    }
+    if(state==='over'){
+      targets.push({type:'cta'});
+      if(badgeRowEl){
+        var badges=badgeRowEl.querySelectorAll('.badge');
+        for(var b=0;b<badges.length;b++) targets.push({type:'badge', i:b});
+      }
+      var orows=overBoard.querySelectorAll('li[data-i]');
+      for(var o=0;o<orows.length;o++) targets.push({type:'board', i:o});
+      return targets;
+    }
+    return targets;
+  }
+  function clearMenuFocus(){
+    startCta.classList.remove('padFocus');
+    retryCta.classList.remove('padFocus');
+    if(badgeInfoClose) badgeInfoClose.classList.remove('padFocus');
+    if(profileClose) profileClose.classList.remove('padFocus');
+    if(badgeRowEl){
+      var kids=badgeRowEl.querySelectorAll('.badge');
+      for(var i=0;i<kids.length;i++) kids[i].classList.remove('padFocus','sel');
+    }
+    if(profileBadgeRowEl){
+      var pk=profileBadgeRowEl.querySelectorAll('.badge');
+      for(var p=0;p<pk.length;p++) pk[p].classList.remove('padFocus','sel');
+    }
+    var boards=[startBoard, overBoard];
+    for(var bi=0;bi<boards.length;bi++){
+      if(!boards[bi])continue;
+      var rows=boards[bi].querySelectorAll('li[data-i]');
+      for(var r=0;r<rows.length;r++) rows[r].classList.remove('padFocus');
+    }
+  }
+  function applyMenuFocus(){
+    clearMenuFocus();
+    if(!padMode)return;
+    var targets=getMenuTargets();
+    if(!targets.length)return;
+    if(menuFocusIdx<0||menuFocusIdx>=targets.length) menuFocusIdx=0;
+    var t=targets[menuFocusIdx];
+    if(t.type==='cta'){
+      if(state==='start') startCta.classList.add('padFocus');
+      else if(state==='over') retryCta.classList.add('padFocus');
+    } else if(t.type==='badgeClose'){
+      badgeInfoClose.classList.add('padFocus');
+    } else if(t.type==='profileClose'){
+      profileClose.classList.add('padFocus');
+    } else if(t.type==='badge'&&badgeRowEl){
+      var badges=badgeRowEl.querySelectorAll('.badge');
+      if(badges[t.i]) badges[t.i].classList.add('padFocus','sel');
+    } else if(t.type==='profileBadge'&&profileBadgeRowEl){
+      var pb=profileBadgeRowEl.querySelectorAll('.badge');
+      if(pb[t.i]) pb[t.i].classList.add('padFocus','sel');
+    } else if(t.type==='board'){
+      var board=activeBoardEl();
+      if(board){
+        var row=board.querySelector('li[data-i="'+t.i+'"]');
+        if(row){
+          row.classList.add('padFocus');
+          if(row.scrollIntoView) row.scrollIntoView({block:'nearest'});
+        }
+      }
+    }
+  }
+  function syncPadCtaLabels(){
+    startCta.textContent=padMode?'START':'TAP TO START';
+    retryCta.textContent=padMode?'RESTART':'TAP TO RETRY';
+    document.body.classList.toggle('padMode', padMode);
+    applyMenuFocus();
+  }
+  function setPadMode(on){
+    if(padMode===on)return;
+    padMode=!!on;
+    padUiHidden=padMode;
+    stick.classList.toggle('padHide', padMode);
+    if(padMode&&(state==='start'||state==='over')) menuFocusIdx=0;
+    syncPadCtaLabels();
+  }
+  function setStickPadHide(hide){ setPadMode(hide); }
+
+  function moveMenuFocus(dir){
+    var targets=getMenuTargets();
+    if(!targets.length)return;
+    if(dir==='r'||dir==='d') menuFocusIdx=(menuFocusIdx+1)%targets.length;
+    else menuFocusIdx=(menuFocusIdx-1+targets.length)%targets.length;
+    applyMenuFocus();
+  }
+  function activateMenuFocus(){
+    var targets=getMenuTargets();
+    if(!targets.length)return;
+    if(menuFocusIdx<0||menuFocusIdx>=targets.length) menuFocusIdx=0;
+    var t=targets[menuFocusIdx];
+    if(t.type==='cta'){
+      if(state==='start') tryStart();
+      else if(state==='over') tryRetry();
+      return;
+    }
+    if(t.type==='badgeClose'){ closeBadgeInfo(); return; }
+    if(t.type==='profileClose'){ closeProfile(); return; }
+    if(t.type==='badge'&&badgeRowEl){
+      var el=badgeRowEl.querySelectorAll('.badge')[t.i];
+      var def=BADGES[t.i];
+      if(el&&def){
+        var kids=badgeRowEl.querySelectorAll('.badge');
+        for(var k=0;k<kids.length;k++) kids[k].classList.toggle('sel', kids[k]===el);
+        openBadgeInfo(def, el.classList.contains('got'));
+      }
+      return;
+    }
+    if(t.type==='profileBadge'&&profileBadgeRowEl){
+      var pel=profileBadgeRowEl.querySelectorAll('.badge')[t.i];
+      var pdef=BADGES[t.i];
+      if(pel&&pdef){
+        var pk=profileBadgeRowEl.querySelectorAll('.badge');
+        for(var pi=0;pi<pk.length;pi++) pk[pi].classList.toggle('sel', pk[pi]===pel);
+        openBadgeInfo(pdef, pel.classList.contains('got'));
+      }
+      return;
+    }
+    if(t.type==='board'&&boardCache[t.i]){
+      openProfile(boardCache[t.i]);
+    }
+  }
+
   function gamepadInput(){
     if(gamepadBlocked||!navigator.getGamepads)return;
     var pads;
     try { pads=navigator.getGamepads(); }
-    catch(e){ gamepadBlocked=true; return; } /* iframe permissions policy blocks it */
+    catch(e){ gamepadBlocked=true; return; }
     var gp=null;
     for(var gi=0;gi<pads.length;gi++){
       if(pads[gi]&&pads[gi].connected){gp=pads[gi];break;}
     }
-    if(!gp){padPrevJump=false;return;}
+    if(!gp){
+      padPrevJump=false; padPrevConfirm=false; padPrevBack=false;
+      padPrevNav={u:false,d:false,l:false,r:false};
+      setPadMode(false);
+      return;
+    }
     var jump=(gp.buttons[0]&&gp.buttons[0].pressed)||(gp.buttons[2]&&gp.buttons[2].pressed);
+    var back=gp.buttons[1]&&gp.buttons[1].pressed;
+    var ax=gp.axes[0]||0, ay=gp.axes[1]||0;
+    var gm=Math.hypot(ax,ay);
+    var up=!!(gp.buttons[12]&&gp.buttons[12].pressed)||ay<-0.55;
+    var down=!!(gp.buttons[13]&&gp.buttons[13].pressed)||ay>0.55;
+    var left=!!(gp.buttons[14]&&gp.buttons[14].pressed)||ax<-0.55;
+    var right=!!(gp.buttons[15]&&gp.buttons[15].pressed)||ax>0.55;
+    var padUsed=jump||back||gm>0.15||up||down||left||right;
+    if(padUsed) setPadMode(true);
+
+    var inMenu=state==='start'||state==='over'||
+      (profileOv&&!profileOv.classList.contains('hidden'))||
+      (badgeInfoEl&&!badgeInfoEl.classList.contains('hidden'));
+    if(inMenu){
+      if(up&&!padPrevNav.u) moveMenuFocus('u');
+      if(down&&!padPrevNav.d) moveMenuFocus('d');
+      if(left&&!padPrevNav.l) moveMenuFocus('l');
+      if(right&&!padPrevNav.r) moveMenuFocus('r');
+      padPrevNav={u:up,d:down,l:left,r:right};
+      if(jump&&!padPrevConfirm) activateMenuFocus();
+      if(back&&!padPrevBack){
+        if(badgeInfoEl&&!badgeInfoEl.classList.contains('hidden')) closeBadgeInfo();
+        else if(profileOv&&!profileOv.classList.contains('hidden')) closeProfile();
+      }
+      padPrevConfirm=jump;
+      padPrevBack=back;
+      padPrevJump=jump;
+      return;
+    }
+
+    padPrevNav={u:up,d:down,l:left,r:right};
+    padPrevConfirm=jump;
+    padPrevBack=back;
     if(jump&&!padPrevJump){
       if(state==='play')requestHop();
-      else if(state==='start')tryStart();
-      else if(state==='over')tryRetry();
     }
     padPrevJump=jump;
     if(state==='play'&&activeId===null){
-      var ax=gp.axes[0]||0, ay=gp.axes[1]||0;
-      var gm=Math.hypot(ax,ay);
-      if(gm>0.15){ /* radial deadzone, rescaled so full tilt = 1 */
+      if(gm>0.15){
         var gsc=Math.min((gm-0.15)/0.85,1)/gm;
         input.x=ax*gsc; input.y=ay*gsc;
       }
     }
   }
+  window.addEventListener('gamepaddisconnected', function(){ setPadMode(false); });
 
   /* Keyboard fallback */
   var keys={};
@@ -2287,6 +2635,9 @@
   }
 
   /* ============================ Hit logic ============================ */
+  function isHubRest(){
+    return level==='arena'&&!FIELD_OFF&&!major&&!bossExitActive;
+  }
   function takeHit(fromX,fromZ){
     if(iframes>0)return;
     hearts--; iframes=1.3;
@@ -2298,7 +2649,10 @@
     hitStop=Math.max(hitStop,0.08);         /* hit-stop */
     shakeT=0.25; shakeX=dx/d; shakeZ=dz/d;  /* directional camera kick */
     thudSfx();
-    if(hearts<=0)gameOver();
+    if(hearts<=0){
+      if(isHubRest()) gameOver({hubDeath:true});
+      else failToHub();
+    }
   }
 
   /* Ground pound impact: shockwave clears bullets, damages boss */
@@ -2427,11 +2781,57 @@
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
     exitVoidLook();
+    FIELD_OFF=false;
+    major=null; majorDone=false;
+    bossExitActive=false; bossExitPortal.visible=false;
+    majorMesh.visible=false; majorShadow.visible=false;
+    clearMajorRing();
     setArenaVisible(true);
     pos.set(0,RADIUS+4,0); vel.set(0,0,0); grounded=false;
     lastGroundY=RADIUS;
-    hearts=3; updateHUD(); heartSfx(); /* the hub is a rest area: full restore */
+    hearts=3; iframes=1.2; updateHUD(); heartSfx(); /* hub rest: full restore */
+    hubTimer=0; portalUnlocked=false;
+    hubPortal.visible=false; hubPortalShadow.visible=false;
+    stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
     spawnShock(0,0); fovPulse=0.3; boomSfx();
+  }
+  function advanceHubSeq(){
+    hubSeq=(hubSeq+1)%4;
+  }
+  function enterHubDestination(){
+    portalUnlocked=false;
+    hubPortal.visible=false; hubPortalShadow.visible=false;
+    if(hubSeq===0) enterNautilus();
+    else if(hubSeq===1) startMajor();
+    else if(hubSeq===2) enterCorridor();
+    else enterObsidian();
+  }
+  function failToHub(){
+    /* died outside hub rest: bank score, bounce home, restart sequence at 0 pts */
+    var banked=bankDeathScore();
+    hubSeq=0;
+    clearThreats();
+    FIELD_OFF=false;
+    major=null;
+    bossExitActive=false; bossExitPortal.visible=false;
+    majorMesh.visible=false; majorShadow.visible=false;
+    clearMajorRing();
+    obs=null; obsDead=false; inkFill=0;
+    if(inkFillEl) inkFillEl.style.width='0%';
+    dust.forEach(function(d){d.alive=false;d.mesh.visible=false;});
+    shards.forEach(function(sh){sh.alive=false;sh.mesh.visible=false;});
+    punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
+    stains.forEach(function(st){st.alive=false;st.mesh.visible=false;});
+    obsBeam.visible=false; obsBeam2.visible=false; obsBeamWarn.visible=false;
+    returnToHub();
+    resetRunScore();
+    if(banked.isNewHigh){
+      toastQueue.push('NEW HIGH SCORE \u00B7 '+pad(banked.score));
+      showNextToast();
+      toastQueue.push('BACK TO HUB');
+    } else {
+      toastQueue.push('BACK TO HUB'); showNextToast();
+    }
   }
   function setSpiralVisible(v){
     for(var i=0;i<spiralMeshes.length;i++)spiralMeshes[i].visible=v;
@@ -2507,7 +2907,10 @@
     toastQueue.push('POUND IT WHEN IT LOWERS');
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
   }
-  function exitCorridor(){ enterNautilus(); }
+  function exitCorridor(){
+    advanceHubSeq();
+    returnToHub();
+  }
 
   /* Shown when the giant falls: unlocks corridor raygun pickups */
   function showRaygunUnlock(){
@@ -2590,7 +2993,7 @@
     toastQueue.push('DEFEAT THE GIANT \u00B7 60s'); showNextToast();
     boomSfx();
   }
-  /* Shared exit: clear the giant, open climb portal, unlock raygun */
+  /* Shared exit: clear the giant, open hub return portal, unlock raygun */
   function finishMajor(killed){
     var kx=major?major.x:0, kz=major?major.z:0;
     if(killed){
@@ -2624,8 +3027,8 @@
     bossExitActive=false;
     bossExitPortal.visible=false;
     FIELD_OFF=false;
-    hearts=3; updateHUD(); heartSfx();
-    enterCorridor();
+    advanceHubSeq();
+    returnToHub();
   }
   function majorHitByPound(){
     major.hp--; major.flash=0.15;
@@ -3230,25 +3633,28 @@
 
     /* --------------- portals + corridor entities --------------- */
     if(level==='arena'){
-      if(!portalUnlocked&&elapsed>=30){ /* survive 30s to open the way */
-        portalUnlocked=true;
-        spawnShock(hubPortal.position.x,hubPortal.position.z);
-        toastQueue.push('PORTAL OPEN'); showNextToast();
-        boomSfx(); fovPulse=0.25;
+      if(isHubRest()){
+        hubTimer+=dt;
+        if(!portalUnlocked&&hubTimer>=30){
+          portalUnlocked=true;
+          spawnShock(hubPortal.position.x,hubPortal.position.z);
+          toastQueue.push('PORTAL OPEN'); showNextToast();
+          boomSfx(); fovPulse=0.25;
+        }
       }
       /* hub portal only while the rest area is intact (not in boss room) */
-      hubPortal.visible=portalUnlocked&&!FIELD_OFF;
-      hubPortalShadow.visible=portalUnlocked&&!FIELD_OFF;
-      if(portalUnlocked&&!FIELD_OFF){
+      hubPortal.visible=portalUnlocked&&isHubRest();
+      hubPortalShadow.visible=portalUnlocked&&isHubRest();
+      if(portalUnlocked&&isHubRest()){
         hubPortal.rotation.y+=1.4*dt;
         hubPortal.scale.setScalar(1.25*(1+Math.sin(elapsed*2.5)*0.06));
       }
-      if(portalUnlocked&&!FIELD_OFF
+      if(portalUnlocked&&isHubRest()
          &&Math.hypot(pos.x-hubPortal.position.x,pos.z-hubPortal.position.z)<2.2
          &&Math.abs(pos.y-hubPortal.position.y)<1.7){
-        startMajor();
+        enterHubDestination();
       }
-      /* after the giant falls, its portal leads to the climb */
+      /* after the giant falls, its portal leads back to the hub */
       if(bossExitActive){
         bossExitPortal.rotation.y+=1.4*dt;
         bossExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
@@ -3560,6 +3966,7 @@
         obsExitPortal.rotation.y+=1.4*dt;
         obsExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
         if(Math.hypot(pos.x-obsExitPortal.position.x,pos.z-obsExitPortal.position.z)<2){
+          advanceHubSeq();
           returnToHub();
         }
       }
@@ -3568,7 +3975,8 @@
       spiralExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
       if(Math.hypot(pos.x-spiralExitPortal.position.x,pos.z-spiralExitPortal.position.z)<2
          &&Math.abs(pos.y-spiralExitPortal.position.y)<2.5){
-        enterObsidian();
+        advanceHubSeq();
+        returnToHub();
       }
       var spLeft=0;
       for(i=0;i<spiralCoins.length;i++){
@@ -3625,7 +4033,7 @@
         }
       }
     } else if(level==='corridor'){
-      /* exit portal at the top of the climb → THE NAUTILUS */
+      /* exit portal at the top of the climb → hub (next seq: Obsidian) */
       exitPortal.visible=corrPortalActive;
       if(corrPortalActive){
         exitPortal.rotation.y+=1.4*dt;
