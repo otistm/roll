@@ -120,6 +120,25 @@
     transition:left 0.6s cubic-bezier(.4,-0.2,.6,1), top 0.6s cubic-bezier(.3,.8,.4,1),
                width 0.6s ease, height 0.6s ease; }
 
+
+  #inkMeter { position:fixed; width:46px; height:9px; border:1.5px solid #111;
+    border-radius:4px; background:#fff; z-index:6; pointer-events:none;
+    display:none; transform:translate(-50%,-50%); }
+  #inkFill { height:100%; width:0%; background:#111; border-radius:2px;
+    transition:width 0.12s ease; }
+
+  /* THE OBSIDIAN's room inverts the UI so it reads on the void */
+  body.void #score, body.void #timer, body.void #coinCount { color:#dfe9ff; }
+  body.void #timer { color:#9fb1d8; }
+  body.void .heart { background:#dfe9ff; border-color:#dfe9ff; }
+  body.void .heart.lost { background:transparent; }
+  body.void .shield { background:#dfe9ff; color:#07080f; }
+  body.void #toast { background:rgba(10,12,22,0.92); color:#dfe9ff; border-color:#dfe9ff; }
+  body.void .coinIcon { border-color:#dfe9ff; }
+  body.void #inkMeter { border-color:#dfe9ff; background:rgba(255,255,255,0.12); }
+  body.void #inkFill { background:#dfe9ff; }
+  body.void #raySlot .rayIcon { border-color:#dfe9ff; }
+
   .overlay {
     position:fixed; inset:0; z-index:10;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -194,6 +213,7 @@
 
 <div id="stick"><div id="knob"></div></div>
 <div id="storm"><span>INK STORM</span></div>
+<div id="inkMeter"><div id="inkFill"></div></div>
 <div id="toast"></div>
 
 <div id="raygunOverlay" class="overlay hidden">
@@ -206,7 +226,6 @@
   <input id="nameField" type="text" maxlength="12" autocomplete="off" autocorrect="off"
     autocapitalize="characters" spellcheck="false" placeholder="YOUR NAME" enterkeyhint="done">
   <div id="nameHint"></div>
-  <p>STICK TO MOVE &middot; TAP TO HOP<br>TAP MIDAIR TO POUND<br>DODGE THE INK &middot; EAT THE GOLD<br>BLUE = SPEED &middot; RIDE RAMPS TO FLY<br>SURVIVE 30S &middot; LAUNCH INTO THE BOSS PORTAL<br>GAMEPAD &middot; LEFT STICK + A / &#10005;</p>
   <div id="startCta" class="cta">TAP TO START</div>
   <div class="board" id="startBoard">
     <h2>TOP SCORES</h2>
@@ -218,7 +237,7 @@
   <h1>ROLL</h1>
   <div id="finalScore">SCORE 000 &middot; BEST 000</div>
   <div id="finalTime">TIME TIL DEATH &middot; 0:00</div>
-  <div id="badgeLabel">BADGES 0/14</div>
+  <div id="badgeLabel">BADGES 0/15</div>
   <div id="badgeRow"></div>
   <div class="board" id="overBoard">
     <h2>TOP SCORES</h2>
@@ -230,7 +249,7 @@
 <div id="profileOverlay" class="overlay hidden">
   <h1 id="profileName">PLAYER</h1>
   <div id="profileScore">SCORE 000</div>
-  <div id="profileBadgeLabel">BADGES 0/14</div>
+  <div id="profileBadgeLabel">BADGES 0/15</div>
   <div id="profileBadgeRow"></div>
   <div id="profileHint">TAP OUTSIDE TO CLOSE</div>
   <div id="profileClose" class="cta">CLOSE</div>
@@ -255,10 +274,32 @@
   var INK=0x111111, RED=0xe8262a, GOLD=0xf2b705, WARN=0xbbbbbb;
   var SHADE=0x9a9a9a, SDX=0.848, SDZ=-0.53; /* drop-shadow color + direction (opposite key light) */
   var FIELD_OFF=false;      /* true while the major boss owns the arena: terrain + pillars vanish */
-  var level='arena';        /* 'arena' = hub / rest area, 'corridor' = THE CLIMB */
+  var obsMeshes=[];         /* THE OBSIDIAN boss room meshes (declared early) */
+  var OBS_R=22;             /* boss room radius */
+  var OBS_FLOAT=14, OBS_GROUND=3.2; /* float + slam heights (needed at mesh build time) */
+  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss */
   var PIPE_K=0.032, PIPE_HW=10, CORR_XMAX=12.5, CORR_START=6, CORR_END=-130;
   var DIAMOND=0xbfeef8;
+  /* THE NAUTILUS: conical spiral path to the ceiling */
+  var SP_R0=6, SP_TURNS=1.75, SP_THMAX=SP_TURNS*Math.PI*2;
+  var SP_R1=16.5, SP_RK=(SP_R1-SP_R0)/SP_THMAX, SP_W=5.2, SP_H=24, SP_BOUND=20;
+  function sp_r(th){ return SP_R0+SP_RK*th; }
+  var SP_TOPTH=SP_THMAX, SP_TOPA=SP_TOPTH%(Math.PI*2);
+  var SP_TOPX=Math.cos(SP_TOPA)*sp_r(SP_TOPTH), SP_TOPZ=Math.sin(SP_TOPA)*sp_r(SP_TOPTH), SP_TOPR=4.2;
+  function spiralHeights(x,z){
+    var a=Math.atan2(z,x); if(a<0)a+=Math.PI*2;
+    var r=Math.hypot(x,z), out=[];
+    for(var k=0;k<3;k++){
+      var th=a+k*Math.PI*2;
+      if(th>SP_THMAX+0.001)break;
+      if(Math.abs(r-sp_r(th))<=SP_W/2)out.push(SP_H*th/SP_THMAX);
+    }
+    var dx=x-SP_TOPX, dz=z-SP_TOPZ;
+    if(dx*dx+dz*dz<=SP_TOPR*SP_TOPR)out.push(SP_H);
+    return out;
+  }
   var fieldMeshes=[];       /* everything hidden during the major boss event */
+  var spiralMeshes=[];      /* THE NAUTILUS meshes */
 
   /* Launch ramps: wedges rising toward the arena center with a cliff at the lip.
      Ride one at speed and the lip converts climb rate into vertical launch. */
@@ -271,6 +312,8 @@
 
   function terrainH(x,z){
     if(FIELD_OFF)return 0;
+    if(level==='spiral')return 0; /* helix is one-way support, not terrain */
+    if(level==='obsidian')return 0;
     if(level==='corridor'){ /* half-pipe: parabolic valley, steep outer walls */
       var d=Math.abs(x);
       return d<=PIPE_HW ? PIPE_K*d*d : PIPE_K*PIPE_HW*PIPE_HW+(d-PIPE_HW)*2;
@@ -305,6 +348,17 @@
 
   var scene=new THREE.Scene();
   scene.background=new THREE.Color(0xffffff);
+  var VOID_BG=new THREE.Color(0x07080f), WHITE_BG=new THREE.Color(0xffffff);
+  var voidFog=new THREE.FogExp2(0x07080f,0.016);
+  var voidAmbient=new THREE.AmbientLight(0x2a3558,1.1); /* added only in the void */
+  function enterVoidLook(){
+    scene.background=VOID_BG; scene.fog=voidFog; scene.add(voidAmbient);
+    document.body.classList.add('void');
+  }
+  function exitVoidLook(){
+    scene.background=WHITE_BG; scene.fog=null; scene.remove(voidAmbient);
+    document.body.classList.remove('void');
+  }
 
   var camera=new THREE.PerspectiveCamera(42,window.innerWidth/window.innerHeight,0.1,300);
   var CAM_OFFSET=new THREE.Vector3(0,42,17);
@@ -434,9 +488,9 @@
     });
   })();
   /* portals: ink torus rings — one in the hub (enter), one atop the climb (exit) */
-  function makePortal(x,z){
+  function makePortal(x,z,color){
     var t=new THREE.Mesh(new THREE.TorusGeometry(1.5,0.22,14,36),
-      new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap}));
+      new THREE.MeshToonMaterial({color:(color||INK),gradientMap:gradientMap}));
     t.position.set(x,1.7,z);
     return t;
   }
@@ -479,6 +533,489 @@
     gates.push({mesh:m,z:gz,theta:idx*1.3,omega:idx%2?1.1:-1.1});
   });
 
+  /* ---------------- THE NAUTILUS: spiral level meshes ---------------- */
+  function spReg(m){ m.visible=false; scene.add(m); spiralMeshes.push(m); return m; }
+  var spiralExitPortal=makePortal(SP_TOPX,SP_TOPZ,BLUE);
+  spiralExitPortal.position.y=SP_H+1.7;
+  spiralExitPortal.visible=false; scene.add(spiralExitPortal); spiralMeshes.push(spiralExitPortal);
+  (function(){
+    var fg=new THREE.PlaneGeometry(46,46);
+    fg.rotateX(-Math.PI/2);
+    spReg(new THREE.Mesh(fg,new THREE.MeshToonMaterial({color:0xffffff,map:dotTex,gradientMap:groundGradient})));
+    function ribbon(offIn,offOut,lift,mat){
+      var N=140, verts=[];
+      function P(th,off){ var r=sp_r(th)+off;
+        return [Math.cos(th)*r, SP_H*th/SP_THMAX+lift, Math.sin(th)*r]; }
+      for(var i=0;i<N;i++){
+        var t0=i/N*SP_THMAX, t1=(i+1)/N*SP_THMAX;
+        var a=P(t0,offIn), b=P(t1,offIn), c=P(t1,offOut), d=P(t0,offOut);
+        verts.push(a,b,c, a,c,d);
+      }
+      var f=new Float32Array(verts.length*3), n=new Float32Array(verts.length*3);
+      for(var j=0;j<verts.length;j++){
+        f[j*3]=verts[j][0]; f[j*3+1]=verts[j][1]; f[j*3+2]=verts[j][2];
+        n[j*3]=0; n[j*3+1]=1; n[j*3+2]=0;
+      }
+      var g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.BufferAttribute(f,3));
+      g.setAttribute('normal',new THREE.BufferAttribute(n,3));
+      return spReg(new THREE.Mesh(g,mat));
+    }
+    ribbon(-SP_W/2,SP_W/2,0,
+      new THREE.MeshToonMaterial({color:0xffffff,gradientMap:gradientMap,side:THREE.DoubleSide}));
+    ribbon(-SP_W/2,-SP_W/2+0.26,0.05,
+      new THREE.MeshBasicMaterial({color:INK,side:THREE.DoubleSide}));
+    ribbon(SP_W/2-0.26,SP_W/2,0.05,
+      new THREE.MeshBasicMaterial({color:INK,side:THREE.DoubleSide}));
+    var top=spReg(new THREE.Mesh(new THREE.CylinderGeometry(SP_TOPR,SP_TOPR,0.7,32),
+      new THREE.MeshToonMaterial({color:0xffffff,gradientMap:gradientMap})));
+    top.position.set(SP_TOPX,SP_H-0.35,SP_TOPZ);
+    top.add(new THREE.Mesh(new THREE.CylinderGeometry(SP_TOPR*1.04,SP_TOPR*1.04,0.78,32),
+      new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+    var tsh=spReg(new THREE.Mesh(new THREE.CircleGeometry(SP_TOPR*0.95,32),
+      new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.5,depthWrite:false})));
+    tsh.rotation.x=-Math.PI/2;
+    tsh.position.set(SP_TOPX+SDX*SP_H*0.35,0.02,SP_TOPZ+SDZ*SP_H*0.35);
+  })();
+  var inkDrops=[], blotches=[];
+  (function(){
+    var dGeo=new THREE.SphereGeometry(0.5,14,10);
+    dGeo.scale(1,1.35,1);
+    for(var i=0;i<8;i++){
+      var dm=spReg(new THREE.Mesh(dGeo,new THREE.MeshBasicMaterial({color:INK})));
+      var tg=spReg(new THREE.Mesh(new THREE.CircleGeometry(0.9,20),
+        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.7})));
+      tg.rotation.x=-Math.PI/2;
+      inkDrops.push({mesh:dm,tele:tg,alive:false,x:0,z:0,y:0,th:0});
+    }
+    for(var j=0;j<10;j++){
+      var bm=spReg(new THREE.Mesh(new THREE.CircleGeometry(1.4,22),
+        new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.95})));
+      bm.rotation.x=-Math.PI/2;
+      blotches.push({mesh:bm,alive:false,x:0,z:0,h:0,t:0});
+    }
+  })();
+  function spawnInkDrop(){
+    for(var i=0;i<inkDrops.length;i++){
+      var d=inkDrops[i];
+      if(!d.alive){
+        var pth=Math.max(0,Math.min(SP_THMAX,(pos.y-RADIUS)/SP_H*SP_THMAX));
+        var tth=Math.max(0,Math.min(SP_THMAX,pth+(Math.random()*1.4-0.3)));
+        var trr=sp_r(tth)+(Math.random()*2-1)*(SP_W/2-0.7);
+        var tx=Math.cos(tth%(Math.PI*2))*trr, tz=Math.sin(tth%(Math.PI*2))*trr;
+        var th=SP_H*tth/SP_THMAX;
+        if(pos.y-RADIUS<0.5){ tx=pos.x+(Math.random()-0.5)*4; tz=pos.z+(Math.random()-0.5)*4; th=0; }
+        d.alive=true; d.x=tx; d.z=tz; d.th=th; d.y=th+30;
+        d.mesh.visible=true; d.mesh.position.set(tx,d.y,tz);
+        d.tele.visible=true; d.tele.position.set(tx,th+0.06,tz); d.tele.scale.setScalar(0.2);
+        return;
+      }
+    }
+  }
+  function spawnBlotch(x,z,hh){
+    for(var i=0;i<blotches.length;i++){
+      var b=blotches[i];
+      if(!b.alive){
+        b.alive=true; b.x=x; b.z=z; b.h=hh; b.t=7;
+        b.mesh.visible=true;
+        b.mesh.position.set(x,hh+0.07,z);
+        b.mesh.material.opacity=0.95;
+        b.mesh.scale.setScalar(0.3);
+        return;
+      }
+    }
+  }
+
+  /* shared VFX textures (built before ANY Obsidian mesh uses them) */
+  var glowTexCanvas=document.createElement('canvas');
+  glowTexCanvas.width=glowTexCanvas.height=128;
+  (function(){
+    var c=glowTexCanvas.getContext('2d');
+    var g=c.createRadialGradient(64,64,2,64,64,64);
+    g.addColorStop(0,'rgba(255,255,255,1)');
+    g.addColorStop(0.25,'rgba(200,225,255,0.85)');
+    g.addColorStop(0.6,'rgba(120,160,255,0.25)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    c.fillStyle=g; c.fillRect(0,0,128,128);
+  })();
+  var glowTex=new THREE.CanvasTexture(glowTexCanvas);
+  var beamTexCanvas=document.createElement('canvas');
+  beamTexCanvas.width=128; beamTexCanvas.height=64;
+  (function(){
+    var c=beamTexCanvas.getContext('2d');
+    var img=c.createImageData(128,64);
+    for(var y=0;y<64;y++)for(var x=0;x<128;x++){
+      var u=x/127, v=y/63;
+      var along=Math.pow(1-u,1.35);
+      var edge=Math.pow(Math.sin(v*Math.PI),1.6);
+      var a=Math.max(0,Math.min(1,along*edge));
+      var idx=(y*128+x)*4;
+      img.data[idx]=img.data[idx+1]=img.data[idx+2]=Math.round(a*255);
+      img.data[idx+3]=255;
+    }
+    c.putImageData(img,0,0);
+  })();
+  var beamTex=new THREE.CanvasTexture(beamTexCanvas);
+
+  /* ---------------- THE OBSIDIAN: boss room ---------------- */
+  function obsReg(m){ m.visible=false; scene.add(m); obsMeshes.push(m); return m; }
+  (function(){
+    var fg=new THREE.PlaneGeometry(64,64);
+    fg.rotateX(-Math.PI/2);
+    obsReg(new THREE.Mesh(fg,new THREE.MeshBasicMaterial({color:0x0c0e1a})));
+    var ring=obsReg(new THREE.Mesh(new THREE.RingGeometry(OBS_R-0.22,OBS_R+0.1,96),
+      new THREE.MeshBasicMaterial({color:0x3a5aa0,transparent:true,opacity:0.7,
+        blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})));
+    ring.rotation.x=-Math.PI/2; ring.position.y=0.04;
+    var inner=obsReg(new THREE.Mesh(new THREE.RingGeometry(5.4,5.5,64),
+      new THREE.MeshBasicMaterial({color:0x2a4070,transparent:true,opacity:0.4,
+        blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})));
+    inner.rotation.x=-Math.PI/2; inner.position.y=0.04;
+  })();
+  /* the boss: a black prism — fresnel body, spectral fire along the facets,
+     internal shimmer, and a glow uniform driven by the fight state */
+  var obsUniforms={
+    uTime:{value:0},
+    uGlow:{value:0},
+    uCamPos:{value:new THREE.Vector3()}
+  };
+  var obsMat=new THREE.ShaderMaterial({
+    uniforms:obsUniforms,
+    vertexShader:[
+      'varying vec3 vN; varying vec3 vW;',
+      'void main(){',
+      '  vN=normalize(mat3(modelMatrix)*normal);',
+      '  vec4 wp=modelMatrix*vec4(position,1.0);',
+      '  vW=wp.xyz;',
+      '  gl_Position=projectionMatrix*viewMatrix*wp;',
+      '}'].join('\n'),
+    fragmentShader:[
+      'uniform float uTime; uniform float uGlow; uniform vec3 uCamPos;',
+      'varying vec3 vN; varying vec3 vW;',
+      'vec3 spectral(float t){ t=fract(t);',
+      '  return clamp(vec3(abs(t*6.0-3.0)-1.0, 2.0-abs(t*6.0-2.0), 2.0-abs(t*6.0-4.0)),0.0,1.0); }',
+      'void main(){',
+      '  vec3 N=normalize(vN);',
+      '  vec3 V=normalize(uCamPos-vW);',
+      '  float fres=pow(1.0-abs(dot(N,V)),2.0);',
+      '  vec3 base=mix(vec3(0.02,0.02,0.05), vec3(0.10,0.14,0.30), fres);', /* obsidian body */
+      '  float facetId=dot(N, vec3(3.17,5.31,7.77));',
+      '  vec3 fire=spectral(facetId*0.13+uTime*0.07);',
+      '  base+=fire*(0.06+fres*0.5);',
+      '  float shim=pow(max(0.0,sin(facetId*4.0+uTime*2.2)),24.0);',
+      '  base+=vec3(1.0)*shim*(0.25+uGlow*0.9);',
+      '  base+=vec3(0.6,0.75,1.0)*fres*0.5;',
+      '  base+=mix(vec3(0.55,0.8,1.0),vec3(1.0),uGlow)*uGlow*(0.5+fres);',
+      '  gl_FragColor=vec4(base,1.0);',
+      '}'].join('\n')
+  });
+  var obsMesh=obsReg(new THREE.Mesh(new THREE.OctahedronGeometry(4.2),obsMat));
+  /* halo + hit-flash sprites, and a light the diamond casts into the void */
+  var obsHalo=obsReg(new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0x9fd4ff,
+    transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.3})));
+  obsHalo.scale.setScalar(11);
+  var obsFlash=obsReg(new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xffffff,
+    transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0})));
+  var obsLight=new THREE.PointLight(0x9fd4ff,0,60,2);
+  scene.add(obsLight); obsMeshes.push(obsLight);
+  var obsShadowM=obsReg(new THREE.Mesh(new THREE.RingGeometry(1.4,2,36),
+    new THREE.MeshBasicMaterial({color:0x7fb0ff,transparent:true,opacity:0.55,
+      blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})));
+  obsShadowM.rotation.x=-Math.PI/2;
+  /* dust: tiny ink particles */
+  var dust=[];
+  (function(){
+    var dg=new THREE.SphereGeometry(0.26,8,6); /* fine mist, high count */
+    var dm=new THREE.MeshBasicMaterial({color:0x9b7bff,transparent:true,opacity:0.95,
+      blending:THREE.AdditiveBlending,depthWrite:false});
+    for(var i=0;i<110;i++){
+      var m=obsReg(new THREE.Mesh(dg,dm));
+      dust.push({mesh:m,alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,age:0});
+    }
+  })();
+  function sprayDust(){
+    var n=32;
+    var tdx=pos.x-obsX, tdz=pos.z-obsZ;
+    var base=Math.atan2(tdz,tdx);
+    for(var i=0;i<n;i++){
+      for(var j=0;j<dust.length;j++){
+        var d=dust[j];
+        if(!d.alive){
+          var a=base+(Math.random()-0.5)*1.1;
+          var sp=6.5+Math.random()*3.5;
+          var vy=-(3.0+Math.random()*1.8); /* steep dive from way up high */
+          d.alive=true; d.age=0;
+          d.x=obsX; d.y=obsY; d.z=obsZ;
+          d.vx=Math.cos(a)*sp; d.vz=Math.sin(a)*sp; d.vy=vy;
+          d.mesh.visible=true;
+          break;
+        }
+      }
+    }
+  }
+  function slamDustRing(){ /* the landing disperses a ring of dust outward */
+    var n=26, c=0;
+    for(var j=0;j<dust.length&&c<n;j++){
+      var d=dust[j];
+      if(!d.alive){
+        c++;
+        var a=c/n*Math.PI*2+Math.random()*0.2;
+        var sp=7+Math.random()*4;
+        d.alive=true; d.age=0.8; /* shorter life than sprayed dust */
+        d.x=obsX+Math.cos(a)*2.2; d.y=0.7; d.z=obsZ+Math.sin(a)*2.2;
+        d.vx=Math.cos(a)*sp; d.vz=Math.sin(a)*sp; d.vy=0;
+        d.mesh.visible=true;
+      }
+    }
+  }
+
+  /* the rotating beam: pivots at the diamond's axis */
+  /* The beam, PRISM-style: shader core + sheath with noise streaks racing
+     along it, a muzzle flare at the gem, spectral dispersion fins, an impact
+     glow where it strikes the floor, and a shock ring. Slanted from the
+     floating diamond down to the rake point; the additive rake ribbon
+     carries the danger line to the wall. */
+  var OBS_RAKE=9;
+  var sparkTexCanvas=document.createElement('canvas');
+  sparkTexCanvas.width=sparkTexCanvas.height=64;
+  (function(){
+    var c=sparkTexCanvas.getContext('2d');
+    var g=c.createRadialGradient(32,32,1,32,32,32);
+    g.addColorStop(0,'rgba(255,255,255,1)');
+    g.addColorStop(0.4,'rgba(255,255,255,0.9)');
+    g.addColorStop(1,'rgba(255,255,255,0)');
+    c.fillStyle=g; c.fillRect(0,0,64,64);
+  })();
+  var sparkTex=new THREE.CanvasTexture(sparkTexCanvas);
+  var beamUniforms={ uTime:{value:0}, uLife:{value:0}, uPower:{value:1} };
+  function beamShader(core){
+    return new THREE.ShaderMaterial({
+      uniforms:beamUniforms,
+      transparent:true, blending:THREE.AdditiveBlending,
+      depthWrite:false, side:THREE.DoubleSide,
+      vertexShader:'varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+      fragmentShader:[
+        'uniform float uTime; uniform float uLife; uniform float uPower;',
+        'varying vec2 vUv;',
+        'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }',
+        'float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
+        '  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }',
+        'void main(){',
+        '  float along=vUv.y;',
+        '  float env=smoothstep(0.0,0.05,uLife)*(1.0-smoothstep(0.82,1.0,uLife));',
+        '  float streak=noise(vec2(vUv.x*'+(core?'6.0':'3.0')+', along*18.0-uTime*'+(core?'26.0':'14.0')+'));',
+        '  streak=pow(streak,'+(core?'1.4':'2.2')+');',
+        '  float tailFade=1.0-smoothstep(0.6,1.0,along);',
+        '  float headBoost=1.0+2.0*(1.0-smoothstep(0.0,0.12,along));',
+        (core
+          ? '  vec3 col=mix(vec3(0.75,0.9,1.0), vec3(1.0), streak);'
+          : '  vec3 col=mix(vec3(0.25,0.5,1.0), vec3(0.7,0.5,1.0), streak);'),
+        '  float a=env*tailFade*headBoost*('+(core?'0.9':'0.4')+'+streak*0.6)*uPower;',
+        '  gl_FragColor=vec4(col*(1.0+uPower*0.3), a);',
+        '}'].join('\n')
+    });
+  }
+  var obsBeam=new THREE.Group();
+  var finMats=[];
+  (function(){
+    var shaftLen=Math.hypot(OBS_RAKE,OBS_FLOAT-0.9)+1.5;
+    function tube(r0,r1,core){
+      var g=new THREE.CylinderGeometry(r0,r1,shaftLen,20,1,true);
+      g.rotateX(Math.PI/2);
+      g.translate(0,0,shaftLen/2);
+      obsBeam.add(new THREE.Mesh(g,beamShader(core)));
+    }
+    tube(0.30,0.85,true);  /* core: thicker, dispersing */
+    tube(0.85,1.9,false);  /* sheath */
+    var muzGeo=new THREE.ConeGeometry(1.8,3.4,20,1,true);
+    muzGeo.rotateX(-Math.PI/2);
+    muzGeo.translate(0,0,1.5);
+    obsBeam.add(new THREE.Mesh(muzGeo,beamShader(true)));
+    /* spectral dispersion fins */
+    var HUES=[0x66aaff,0x9b7bff,0xff6fd8,0xffd166,0x7dffb2,0x6ff2ff];
+    for(var i=0;i<HUES.length;i++){
+      var fg=new THREE.PlaneGeometry(0.45,shaftLen*0.9);
+      fg.rotateX(Math.PI/2);
+      fg.translate(0,0,shaftLen*0.45);
+      var fm=new THREE.MeshBasicMaterial({color:HUES[i],transparent:true,opacity:0,
+        blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide});
+      var fin=new THREE.Mesh(fg,fm);
+      fin.rotation.z=i/HUES.length*Math.PI*2;
+      fin.rotation.x=-0.05-(i%3)*0.02;
+      obsBeam.add(fin);
+      finMats.push(fm);
+    }
+    /* impact glow + shock ring live at the strike point (end of shaft) */
+    var imp=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xcfe6ff,
+      transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));
+    imp.position.set(0,0,shaftLen*0.94);
+    obsBeam.add(imp);
+    obsBeam.userData.impact=imp;
+    /* the rake: additive light ribbon carrying the kill line to the wall.
+       Local +z is the beam axis; the rake lies along its floor projection. */
+  })();
+  /* pitch so the shaft strikes the floor at OBS_RAKE */
+  var OBS_PITCH=Math.atan2(OBS_FLOAT-0.9,OBS_RAKE);
+  /* additive rake ribbons (separate flat group, shares the yaw) */
+  var obsRake=new THREE.Group();
+  (function(){
+    function taperGeo(len,w0,w1){
+      var g=new THREE.BufferGeometry();
+      var v=new Float32Array([0,0,-w0/2, len,0,-w1/2, len,0,w1/2, 0,0,-w0/2, len,0,w1/2, 0,0,w0/2]);
+      var uv=new Float32Array([0,0, 1,0, 1,1, 0,0, 1,1, 0,1]);
+      g.setAttribute('position',new THREE.BufferAttribute(v,3));
+      g.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+      g.computeVertexNormals();
+      return g;
+    }
+    function rk(w0,w1,op,col){
+      var len=OBS_R-OBS_RAKE+2;
+      var m=new THREE.Mesh(taperGeo(len,w0,w1),new THREE.MeshBasicMaterial({color:col,
+        alphaMap:beamTex,transparent:true,opacity:op,depthWrite:false,
+        blending:THREE.AdditiveBlending,side:THREE.DoubleSide}));
+      m.position.set(0,0.3,0);
+      m.translateX(OBS_RAKE-1);
+      obsRake.add(m);
+    }
+    rk(4.4,1.8,0.5,0x6fa8ff);
+    rk(2.2,0.7,0.9,0xdfe9ff);
+  })();
+  obsBeam.add(obsRake); /* wait — rake is flat; it must not inherit the pitch */
+  obsBeam.remove(obsRake);
+  obsReg(obsRake);
+  obsReg(obsBeam);
+  /* the rage arm: mirrored twins of the shaft and the rake */
+  var obsBeam2=obsBeam.clone();
+  obsReg(obsBeam2);
+  obsBeam2.userData.impact=obsBeam2.children[obsBeam.children.indexOf(obsBeam.userData.impact)];
+  var obsRake2=obsRake.clone();
+  obsReg(obsRake2);
+  var obsBeamWarnGeo=new THREE.BoxGeometry(OBS_R,0.4,0.6);
+  obsBeamWarnGeo.translate(OBS_R/2,0,0);
+  var obsBeamWarn=obsReg(new THREE.Mesh(obsBeamWarnGeo,
+    new THREE.MeshBasicMaterial({color:0x7fb0ff,transparent:true,opacity:0.3,
+      blending:THREE.AdditiveBlending,depthWrite:false})));
+  obsBeamWarn.position.y=0.9;
+
+  /* punish rings: hostile pulses while it sits grounded — hop them to reach it */
+  var punishRings=[];
+  (function(){
+    for(var i=0;i<4;i++){
+      var m=obsReg(new THREE.Mesh(new THREE.RingGeometry(1,1.12,48),
+        new THREE.MeshBasicMaterial({color:0x6ff2ff,transparent:true,opacity:0.85,
+          blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})));
+      m.rotation.x=-Math.PI/2;
+      punishRings.push({mesh:m,alive:false,x:0,z:0,r:0});
+    }
+  })();
+  function firePunishRing(){
+    for(var i=0;i<punishRings.length;i++){
+      var r=punishRings[i];
+      if(!r.alive){
+        r.alive=true; r.x=obsX; r.z=obsZ; r.r=1.2;
+        r.mesh.position.set(obsX,0.5,obsZ);
+        r.mesh.visible=true;
+        return;
+      }
+    }
+  }
+  /* poison stains: dust that lands stains the floor; the arena decays */
+  var stains=[];
+  (function(){
+    for(var i=0;i<22;i++){
+      var m=obsReg(new THREE.Mesh(new THREE.CircleGeometry(1.05,18),
+        new THREE.MeshBasicMaterial({color:0x6a4bd8,transparent:true,opacity:0.55,
+          blending:THREE.AdditiveBlending,depthWrite:false})));
+      m.rotation.x=-Math.PI/2;
+      stains.push({mesh:m,alive:false,x:0,z:0,t:0});
+    }
+  })();
+  function spawnStain(x,z){
+    for(var i=0;i<stains.length;i++){
+      var st=stains[i];
+      if(!st.alive){
+        st.alive=true; st.x=x; st.z=z; st.t=11;
+        st.mesh.position.set(x,0.06,z);
+        st.mesh.scale.setScalar(0.3+Math.random()*0.4);
+        st.mesh.material.opacity=0.8;
+        st.mesh.visible=true;
+        return;
+      }
+    }
+  }
+  var stainTickT=0;
+
+  /* pooled spark particles: charge motes, slam bursts, pound hits, the death nova */
+  var P_MAX=360;
+  var pGeo=new THREE.BufferGeometry();
+  var pPos=new Float32Array(P_MAX*3);
+  pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+  var pPoints=new THREE.Points(pGeo,new THREE.PointsMaterial({map:sparkTex,color:0xd8ecff,
+    size:0.22,transparent:true,opacity:0.95,blending:THREE.AdditiveBlending,depthWrite:false}));
+  pPoints.frustumCulled=false;
+  pPoints.visible=false; scene.add(pPoints); obsMeshes.push(pPoints);
+  var sparks=[];
+  function spawnSpark(x,y,z,vx,vy,vz,life){
+    if(sparks.length>=P_MAX)sparks.shift();
+    sparks.push({x:x,y:y,z:z,vx:vx,vy:vy,vz:vz,life:life,max:life});
+  }
+  function burstSparks(x,y,z,n,speed){
+    for(var i=0;i<n;i++){
+      var a=Math.random()*Math.PI*2, ph=(Math.random()-0.5)*Math.PI;
+      var sp=speed*(0.5+Math.random());
+      spawnSpark(x,y,z,
+        Math.cos(a)*Math.cos(ph)*sp, Math.abs(Math.sin(ph))*sp, Math.sin(a)*Math.cos(ph)*sp,
+        0.4+Math.random()*0.6);
+    }
+  }
+  function updateSparks(dt){
+    for(var i=sparks.length-1;i>=0;i--){
+      var q=sparks[i];
+      q.life-=dt;
+      if(q.life<=0){sparks.splice(i,1);continue;}
+      q.x+=q.vx*dt; q.y+=q.vy*dt; q.z+=q.vz*dt;
+      q.vx*=1-1.6*dt; q.vy*=1-1.6*dt; q.vz*=1-1.6*dt;
+    }
+    var n=0;
+    for(var j=0;j<sparks.length;j++){
+      pPos[n*3]=sparks[j].x; pPos[n*3+1]=sparks[j].y; pPos[n*3+2]=sparks[j].z; n++;
+    }
+    for(var k=n;k<P_MAX;k++){pPos[k*3]=0;pPos[k*3+1]=-999;pPos[k*3+2]=0;}
+    pGeo.attributes.position.needsUpdate=true;
+  }
+
+  /* shards for the death shatter */
+  var shards=[];
+  (function(){
+    var sg=new THREE.OctahedronGeometry(0.85);
+    for(var i=0;i<12;i++){
+      var m=obsReg(new THREE.Mesh(sg,new THREE.MeshBasicMaterial({color:0xbcd8ff,
+        transparent:true,blending:THREE.AdditiveBlending,depthWrite:false})));
+      shards.push({mesh:m,alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,t:0});
+    }
+  })();
+  function shatterObsidian(x,y,z){
+    for(var i=0;i<shards.length;i++){
+      var sh=shards[i];
+      var a=i/shards.length*Math.PI*2;
+      sh.alive=true; sh.t=1.5;
+      sh.x=x; sh.y=y; sh.z=z;
+      sh.vx=Math.cos(a)*(4+Math.random()*4);
+      sh.vz=Math.sin(a)*(4+Math.random()*4);
+      sh.vy=5+Math.random()*6;
+      sh.mesh.visible=true;
+      sh.mesh.material.opacity=1;
+      sh.mesh.scale.setScalar(1);
+    }
+  }
+
+
+  var obsExitPortal=new THREE.Mesh(new THREE.TorusGeometry(1.5,0.22,14,36),
+    new THREE.MeshBasicMaterial({color:0x7fd8ff,transparent:true,opacity:0.9,
+      blending:THREE.AdditiveBlending,depthWrite:false}));
+  obsExitPortal.position.set(0,1.7,0);
+  obsExitPortal.visible=false; scene.add(obsExitPortal); obsMeshes.push(obsExitPortal);
+
   /* Pillars: cover that blocks bullets (not beams) */
   PILLARS.forEach(function(pl){
     var psh=new THREE.Mesh(new THREE.CircleGeometry(pl.r*1.08,32),
@@ -503,6 +1040,7 @@
 
   var ballGeo=new THREE.SphereGeometry(RADIUS,48,32);
   var ballMesh=new THREE.Mesh(ballGeo,new THREE.MeshToonMaterial({color:RED,gradientMap:gradientMap}));
+  var ballMat=ballMesh.material; /* referenced by the poison tint */
   headG.add(ballMesh);
   var outline=new THREE.Mesh(ballGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide}));
   outline.scale.setScalar(1.045);
@@ -633,6 +1171,29 @@
       corrCoins[i].mesh.scale.setScalar(1);
     }
   }
+  /* nautilus coins: evenly spaced along the path; all collected = +1000 */
+  var spiralCoins=[], spiralBonusGiven=false;
+  function buildSpiralCoins(){
+    if(!spiralCoins.length){
+      for(var i=0;i<20;i++){
+        var m=new THREE.Mesh(coinGeo,new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
+        m.add(new THREE.Mesh(coinOutGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+        spReg(m);
+        spiralCoins.push({mesh:m,alive:false,x:0,z:0,h:0});
+      }
+    }
+    for(var j=0;j<spiralCoins.length;j++){
+      var th=(0.4+j/spiralCoins.length*(SP_THMAX-0.9));
+      var rr=sp_r(th)+Math.sin(j*1.7)*1.2;
+      var c=spiralCoins[j];
+      c.x=Math.cos(th)*rr; c.z=Math.sin(th)*rr;
+      c.h=SP_H*th/SP_THMAX;
+      c.alive=true;
+      c.mesh.position.set(c.x,c.h+0.75,c.z);
+      c.mesh.visible=true;
+    }
+    spiralBonusGiven=false;
+  }
   /* diamonds: 50 coins each, perched high on the walls */
   var diamonds=[];
   (function(){
@@ -657,7 +1218,14 @@
   var coinsEl=document.getElementById('coins');
   var coinCountEl=document.getElementById('coinCount');
   var coinsBanked=0;
+  var coinLifeAt=100; /* next free-life threshold */
   var projV=new THREE.Vector3();
+  function grantCoinLife(){
+    hearts++;
+    updateHUD();
+    heartSfx();
+    toastQueue.push('FREE LIFE'); showNextToast();
+  }
   function flyCoin(x,y,z,value){
     value=value||1;
     projV.set(x,y,z).project(camera);
@@ -681,6 +1249,10 @@
       coinsEl.classList.remove('bump');
       void coinsEl.offsetWidth; /* restart bump animation */
       coinsEl.classList.add('bump');
+      while(coinsBanked>=coinLifeAt){
+        coinLifeAt+=100;
+        grantCoinLife();
+      }
     }
     el.addEventListener('transitionend',bank,{once:true});
     setTimeout(bank,700); /* fallback if transitionend never fires */
@@ -880,9 +1452,9 @@
   /* ============================ Game state =========================== */
   var state='start';         // start | play | over | raygun
   var pos=new THREE.Vector3(0,RADIUS,0), vel=new THREE.Vector3();
-  var grounded=true, wasAirborne=false;
+  var grounded=true, wasAirborne=false, lastGroundY=RADIUS;
   var hearts=3, iframes=0, elapsed=0, collected=0, best=0;
-  var spawnTimer=1.5, pipTimer=1, spiral=null;
+  var spawnTimer=1.5, pipTimer=1, spiral=null, dropTimer=1.2;
   var combo=0, coinScore=0, pounding=false;
   var boostT=0, boostSpawnTimer=8;
   var hitStop=0, fovPulse=0, shakeT=0, shakeX=0, shakeZ=0;
@@ -892,6 +1464,8 @@
   var raygunUnlocked=false, raygunT=0, rayFireCool=0, raygunSpawnTimer=8;
   var major=null, majorDone=false; /* major boss: enter via hub portal after 30s */
   var portalUnlocked=false;                              /* hub portal: 30s survival */
+  var obs=null, obsY=OBS_FLOAT, obsX=0, obsZ=0, inkFill=0, INK_CAP=6, obsDead=false;
+  var lastInkT=-99, inkDecayT=0;
   var heartDrop=null, heartCool=0;
 
   /* WebAudio: coin pitch ladder (Mario-style), thud, boom */
@@ -915,6 +1489,60 @@
   function boostSfx(){ tone(320,0.35,'sawtooth',0.09,1100); }
   function thudSfx(){ tone(140,0.16,'sine',0.15,50); }
   function boomSfx(){ tone(90,0.28,'sine',0.2,36); tone(45,0.3,'triangle',0.12); }
+
+  function noiseBuf(dur){
+    var b=AC.createBuffer(1,AC.sampleRate*dur,AC.sampleRate);
+    var d=b.getChannelData(0);
+    for(var i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+    return b;
+  }
+  function blastSfx(power){
+    if(!AC)return;
+    var t=AC.currentTime;
+    var src=AC.createBufferSource(); src.buffer=noiseBuf(1.1);
+    var bp=AC.createBiquadFilter(); bp.type='lowpass';
+    bp.frequency.setValueAtTime(9000,t);
+    bp.frequency.exponentialRampToValueAtTime(300,t+0.9);
+    var ng=AC.createGain();
+    ng.gain.setValueAtTime(0.22*power,t);
+    ng.gain.exponentialRampToValueAtTime(0.0001,t+1.0);
+    src.connect(bp).connect(ng).connect(AC.destination); src.start(t);
+    var sub=AC.createOscillator(); sub.type='sine';
+    sub.frequency.setValueAtTime(170,t);
+    sub.frequency.exponentialRampToValueAtTime(38,t+0.5);
+    var sg=AC.createGain();
+    sg.gain.setValueAtTime(0.3*power,t);
+    sg.gain.exponentialRampToValueAtTime(0.0001,t+0.55);
+    sub.connect(sg).connect(AC.destination); sub.start(t); sub.stop(t+0.6);
+    for(var i=0;i<4;i++){
+      var o=AC.createOscillator(); o.type='sine';
+      var f=1500+Math.random()*3000;
+      o.frequency.setValueAtTime(f,t);
+      o.frequency.exponentialRampToValueAtTime(f*1.6,t+0.4);
+      var og=AC.createGain();
+      og.gain.setValueAtTime(0.0001,t+i*0.02);
+      og.gain.exponentialRampToValueAtTime(0.04*power,t+i*0.02+0.03);
+      og.gain.exponentialRampToValueAtTime(0.0001,t+0.5+i*0.05);
+      o.connect(og).connect(AC.destination); o.start(t); o.stop(t+0.8);
+    }
+  }
+  function chargeSfx(){
+    if(!AC)return;
+    var t=AC.currentTime;
+    var o=AC.createOscillator(),g=AC.createGain(),lp=AC.createBiquadFilter();
+    o.type='sawtooth';
+    o.frequency.setValueAtTime(110,t);
+    o.frequency.exponentialRampToValueAtTime(760,t+0.85);
+    lp.type='lowpass';
+    lp.frequency.setValueAtTime(500,t);
+    lp.frequency.exponentialRampToValueAtTime(3200,t+0.85);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.045,t+0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.88);
+    o.connect(lp).connect(g).connect(AC.destination);
+    o.start(t); o.stop(t+0.9);
+  }
+
   function heartSfx(){ tone(660,0.1,'sine',0.08); tone(990,0.16,'sine',0.07); }
   var squashT=0, squashAmt=0;
   var rollQuat=new THREE.Quaternion(), rollAxis=new THREE.Vector3();
@@ -927,6 +1555,8 @@
   var finalEl=document.getElementById('finalScore');
   var finalTimeEl=document.getElementById('finalTime');
   var stormEl=document.getElementById('storm');
+  var inkMeterEl=document.getElementById('inkMeter');
+  var inkFillEl=document.getElementById('inkFill');
   var chestOv=document.getElementById('raygunOverlay');
   var raySlotEl=document.getElementById('raySlot');
   var stormSpan=stormEl.querySelector('span');
@@ -942,6 +1572,7 @@
   var BADGES=[
     {id:'flight',  g:'FF', name:'FIRST FLIGHT'},
     {id:'skyhigh', g:'SH', name:'SKY HIGH'},
+    {id:'slayer',  g:'OB', name:'OBSIDIAN SLAYER'},
     {id:'combo8',  g:'C8', name:'RED HOT'},
     {id:'combo12', g:'CX', name:'MAX COMBO'},
     {id:'boss',    g:'BB', name:'BOSS BREAKER'},
@@ -1364,7 +1995,20 @@
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
     major=null; majorDone=false; FIELD_OFF=false;
     bossExitActive=false; bossExitPortal.visible=false;
-    level='arena'; setCorridorVisible(false); setFieldVisible(true);
+    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setFieldVisible(true);
+    lastGroundY=RADIUS; dropTimer=1.2;
+    punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
+    stains.forEach(function(st){st.alive=false;st.mesh.visible=false;});
+    obs=null; obsDead=false; inkFill=0; inkFillEl.style.width='0%';
+    ballMat.color.setHex(RED);
+    exitVoidLook();
+    inkMeterEl.style.display='none';
+    obsBeam.visible=false; obsBeam2.visible=false; obsBeamWarn.visible=false;
+    setObsVisible(false);
+    dust.forEach(function(d){d.alive=false;d.mesh.visible=false;});
+    shards.forEach(function(sh){sh.alive=false;sh.mesh.visible=false;});
+    inkDrops.forEach(function(d){d.alive=false;d.mesh.visible=false;d.tele.visible=false;});
+    blotches.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     coinIndex=0; coinBlinkT=0; corrPortalActive=false; portalUnlocked=false;
     raygunUnlocked=false; raygunT=0; rayFireCool=0; raygunSpawnTimer=8;
     raySlotEl.classList.remove('got');
@@ -1385,6 +2029,7 @@
     sweep.active=false; sweep.mesh.visible=false;
     pips.forEach(function(p){p.alive=false;p.mesh.visible=false;p.shadow.visible=false;});
     coinsBanked=0;
+    coinLifeAt=100;
     coinCountEl.innerHTML='&times; 00';
     coinsEl.classList.remove('bump');
     var fliers=document.querySelectorAll('.coinFly');
@@ -1650,6 +2295,58 @@
     }
     if(swept>=6)awardBadge('sweep');
     if(boss&&Math.hypot(pos.x-boss.x,pos.z-boss.z)<5.4)bossHitByPound();
+    if(level==='obsidian'&&obs&&obs.phase==='grounded'
+       &&Math.hypot(pos.x-obsX,pos.z-obsZ)<5.4){
+      obs.hp--;
+      obs.flash=0.3; obs.punch=0.4;
+      burstSparks(obsX,obsY,obsZ,60,14);
+      hitStop=Math.max(hitStop,0.1); fovPulse=0.3;
+      shakeT=0.22; shakeX=pos.x||0.5; shakeZ=pos.z||0.5;
+      spawnShock(0,0);
+      var msC=0;
+      for(var msi=0;msi<shards.length&&msC<4;msi++){
+        var msh=shards[msi];
+        if(!msh.alive){
+          msC++;
+          var msa=Math.random()*Math.PI*2;
+          msh.alive=true; msh.t=0.9;
+          msh.x=obsX; msh.y=obsY; msh.z=obsZ;
+          msh.vx=Math.cos(msa)*7; msh.vz=Math.sin(msa)*7; msh.vy=6+Math.random()*4;
+          msh.mesh.visible=true; msh.mesh.material.opacity=1;
+          msh.mesh.scale.setScalar(0.6);
+        }
+      }
+      if(obs.hp<=0){
+        obsDead=true;
+        shatterObsidian(obsX,obsY,obsZ);
+        burstSparks(obsX,obsY,obsZ,150,18);
+        blastSfx(2.0);
+        obsMesh.visible=false; obsShadowM.visible=false;
+        obsExitPortal.visible=true;
+        spawnShock(obsX,obsZ);
+        setTimeout(function(){ if(state==='play')spawnShock(obsX,obsZ); },220);
+        coinScore+=2000; updateHUD();
+        hearts=Math.min(3,hearts+1); updateHUD(); heartSfx();
+        awardBadge('slayer');
+        toastQueue.push('+2000'); showNextToast();
+        toastQueue.push('FREE LIFE');
+        toastQueue.push('PORTAL OPEN');
+        boomSfx(); boomSfx();
+        for(var oi=0;oi<12;oi++)(function(k){
+          setTimeout(function(){
+            if(state!=='play')return;
+            flyCoin((Math.random()-0.5)*4,3,(Math.random()-0.5)*4);
+            coinBlip();
+          },k*80);
+        })(oi);
+      } else {
+        obs.phase='rise';
+        slamDustRing();
+        toastQueue.push(obs.hp===2?'THE OBSIDIAN QUICKENS':'THE OBSIDIAN RAGES');
+        showNextToast();
+        boomSfx();
+      }
+    }
     if(major&&Math.hypot(pos.x-major.x,pos.z-major.z)<7)majorHitByPound();
   }
 
@@ -1672,10 +2369,17 @@
     boss=null; bossMesh.visible=false; bossShadow.visible=false;
     storm=0; stormEl.classList.remove('on');
     heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
+    inkDrops.forEach(function(d){d.alive=false;d.mesh.visible=false;d.tele.visible=false;});
+    blotches.forEach(function(b){b.alive=false;b.mesh.visible=false;});
   }
   function enterCorridor(){
     level='corridor';
     clearThreats();
+    setSpiralVisible(false);
+    setObsVisible(false);
+    inkMeterEl.style.display='none';
+    ballMat.color.setHex(RED);
+    exitVoidLook();
     setArenaVisible(false);
     pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
     boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
@@ -1698,12 +2402,92 @@
     level='arena';
     clearThreats();
     setCorridorVisible(false);
+    setSpiralVisible(false);
+    setObsVisible(false);
+    inkMeterEl.style.display='none';
+    ballMat.color.setHex(RED);
+    exitVoidLook();
     setArenaVisible(true);
     pos.set(0,RADIUS+4,0); vel.set(0,0,0); grounded=false;
+    lastGroundY=RADIUS;
     hearts=3; updateHUD(); heartSfx(); /* the hub is a rest area: full restore */
     spawnShock(0,0); fovPulse=0.3; boomSfx();
   }
-  function exitCorridor(){ returnToHub(); }
+  function setSpiralVisible(v){
+    for(var i=0;i<spiralMeshes.length;i++)spiralMeshes[i].visible=v;
+    if(v){
+      for(var j=0;j<spiralCoins.length;j++)spiralCoins[j].mesh.visible=spiralCoins[j].alive;
+      inkDrops.forEach(function(d){d.mesh.visible=d.alive;d.tele.visible=d.alive;});
+      blotches.forEach(function(b){b.mesh.visible=b.alive;});
+      spiralExitPortal.visible=true;
+    }
+  }
+  function enterNautilus(){
+    level='spiral';
+    clearThreats();
+    setCorridorVisible(false);
+    setObsVisible(false);
+    inkMeterEl.style.display='none';
+    ballMat.color.setHex(RED);
+    exitVoidLook();
+    setArenaVisible(false);
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
+    inkDrops.forEach(function(d){d.alive=false;d.mesh.visible=false;d.tele.visible=false;});
+    blotches.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+    buildSpiralCoins();
+    setSpiralVisible(true);
+    pos.set(SP_R0,RADIUS,1.2); vel.set(0,0,0); grounded=true; lastGroundY=RADIUS;
+    dropTimer=2;
+    toastQueue.push('THE NAUTILUS'); showNextToast();
+    toastQueue.push('ALL COINS = +1000');
+    toastQueue.push('BEWARE THE INK RAIN');
+    spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
+
+  function setObsVisible(v){
+    for(var i=0;i<obsMeshes.length;i++)obsMeshes[i].visible=v;
+    if(v){
+      /* transient VFX stay hidden until the fight ignites them */
+      obsBeam.visible=false; obsBeam2.visible=false;
+      obsRake.visible=false; obsRake2.visible=false;
+      obsBeamWarn.visible=false;
+      dust.forEach(function(d){d.mesh.visible=d.alive;});
+      shards.forEach(function(sh){sh.mesh.visible=sh.alive;});
+      punishRings.forEach(function(r){r.mesh.visible=r.alive;});
+      stains.forEach(function(st){st.mesh.visible=st.alive;});
+      obsExitPortal.visible=obsDead;
+      obsMesh.visible=!obsDead;
+      obsShadowM.visible=!obsDead;
+    }
+  }
+  function enterObsidian(){
+    level='obsidian';
+    clearThreats();
+    setCorridorVisible(false);
+    setSpiralVisible(false);
+    setArenaVisible(false);
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
+    dust.forEach(function(d){d.alive=false;d.mesh.visible=false;});
+    shards.forEach(function(sh){sh.alive=false;sh.mesh.visible=false;});
+    punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
+    stains.forEach(function(st){st.alive=false;st.mesh.visible=false;});
+    obs={hp:3,phase:'float',attackIdx:0,cool:2.4,tele:0,vulT:0,flash:0,punch:0,
+         beamT:0,beamWarnT:0,beamA:0,slamsLeft:0,dripT:0,ringT:0,orbitA:0};
+    obsY=OBS_FLOAT; obsX=0; obsZ=0; inkFill=0; obsDead=false; lastInkT=-99; inkDecayT=0;
+    obsBeam.visible=false; obsBeam2.visible=false; obsBeamWarn.visible=false;
+    inkFillEl.style.width='0%';
+    enterVoidLook();
+    setObsVisible(true);
+    pos.set(0,RADIUS,17); vel.set(0,0,0); grounded=true;
+    toastQueue.push('DODGE THE DUST'); showNextToast();
+    toastQueue.push('POUND IT WHEN IT LOWERS');
+    spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
+  function exitCorridor(){ enterNautilus(); }
 
   /* Shown when the giant falls: unlocks corridor raygun pickups */
   function showRaygunUnlock(){
@@ -1759,9 +2543,10 @@
   /* Major boss room: hub portal drops you into an emptied arena for 60s.
      Kill the giant (or outlast the clock) → climb portal + raygun unlock. */
   function startMajor(){
-    if(level==='corridor'){
+    if(level==='corridor'||level==='spiral'){
       clearThreats();
       setCorridorVisible(false);
+      setSpiralVisible(false);
       level='arena';
     }
     bossExitActive=false; bossExitPortal.visible=false;
@@ -1840,8 +2625,9 @@
 
   /* ============================= Physics ============================= */
   function physicsStep(dt){
-    var accelE=ACCEL*(boostT>0?BOOST_MULT:1);   /* boost scales accel + clamp together */
-    var maxE=MAX_SPEED*(boostT>0?BOOST_MULT:1);  /* so clamp still == terminal */
+    var poisonK=(level==='obsidian')?1-(inkFill/INK_CAP)*0.45:1;
+    var accelE=ACCEL*(boostT>0?BOOST_MULT:1)*poisonK; /* boost & poison scale accel + clamp together */
+    var maxE=MAX_SPEED*(boostT>0?BOOST_MULT:1)*poisonK; /* so clamp still == terminal */
     vel.x+=input.x*accelE*dt;
     vel.z+=input.y*accelE*dt;
 
@@ -1849,6 +2635,12 @@
     if(grounded){
       var g=terrainGrad(pos.x,pos.z);
       vel.x+=-G*g.x*dt; vel.z+=-G*g.z*dt;         /* slope force */
+      if(level==='spiral'&&pos.y>RADIUS+0.4){     /* helix slope pulls down-path */
+        var rr2=pos.x*pos.x+pos.z*pos.z||1;
+        var gk=SP_H/SP_THMAX;
+        vel.x+=-G*(-pos.z/rr2*gk)*dt;
+        vel.z+=-G*( pos.x/rr2*gk)*dt;
+      }
       var damp=Math.max(0,1-FRICTION*dt);
       vel.x*=damp; vel.z*=damp;
     }
@@ -1857,7 +2649,7 @@
     if(s>maxE){vel.x*=maxE/s;vel.z*=maxE/s;}
 
     vel.y-=G*dt;
-    var ppx=pos.x, ppz=pos.z;
+    var ppx=pos.x, ppz=pos.z, ppBottom=pos.y-RADIUS;
     pos.x+=vel.x*dt; pos.y+=vel.y*dt; pos.z+=vel.z*dt;
 
     /* terrain (verified: only downward velocity reflects, hops survive) */
@@ -1883,7 +2675,7 @@
         }
       }
       grounded=vel.y<=0.01;
-      if(grounded)vel.y=0;
+      if(grounded){vel.y=0;lastGroundY=pos.y;}
       wasAirborne=false;
     } else {
       if(wasGr){ /* lip launch: backward-sampled climb, never reads across the cliff */
@@ -1901,6 +2693,26 @@
       grounded=false; wasAirborne=true;
     }
 
+    /* spiral: one-way helix support */
+    if(level==='spiral'&&vel.y<=6){
+      var sphs=spiralHeights(pos.x,pos.z), spNb=pos.y-RADIUS;
+      for(var spi=0;spi<sphs.length;spi++){
+        var sph=sphs[spi];
+        if(grounded&&Math.abs(spNb-sph)<0.001)break;
+        var spCross=ppBottom>=sph-0.06&&spNb<=sph&&vel.y<=0;
+        var spBand=spNb<=sph&&sph-spNb<=1.2;
+        var spFollow=wasGr&&Math.abs(spNb-sph)<=0.3&&vel.y<=0;
+        if(spCross||spBand||spFollow){
+          var spImpact=-vel.y;
+          pos.y=sph+RADIUS;
+          if(pounding){pounding=false;poundImpact();}
+          else if(spImpact>4){squashT=0.2;squashAmt=Math.min(spImpact*0.035,0.4);}
+          vel.y=0; grounded=true; lastGroundY=pos.y; wasAirborne=false;
+          break;
+        }
+      }
+    }
+
     /* bounds: circular rim in the hub, wider in the boss room, walls in the corridor */
     if(level==='arena'){
       var boundR=FIELD_OFF?BOSS_ARENA:ARENA;
@@ -1911,11 +2723,24 @@
         var vr=vel.x*nx+vel.z*nz;
         if(vr>0){vel.x-=(1+REST)*vr*nx; vel.z-=(1+REST)*vr*nz;}
       }
-    } else {
+    } else if(level==='corridor'){
       if(pos.x> CORR_XMAX){pos.x= CORR_XMAX; if(vel.x>0)vel.x=-vel.x*REST;}
       if(pos.x<-CORR_XMAX){pos.x=-CORR_XMAX; if(vel.x<0)vel.x=-vel.x*REST;}
       if(pos.z> CORR_START){pos.z= CORR_START; if(vel.z>0)vel.z=-vel.z*REST;}
       if(pos.z< CORR_END-2){pos.z= CORR_END-2; if(vel.z<0)vel.z=-vel.z*REST;}
+    } else if(level==='obsidian'){ /* circular boss room */
+      var or2=Math.hypot(pos.x,pos.z);
+      if(or2>OBS_R-RADIUS){
+        var onx=pos.x/or2, onz=pos.z/or2;
+        pos.x=onx*(OBS_R-RADIUS); pos.z=onz*(OBS_R-RADIUS);
+        var ovr=vel.x*onx+vel.z*onz;
+        if(ovr>0){vel.x-=(1+REST)*ovr*onx; vel.z-=(1+REST)*ovr*onz;}
+      }
+    } else { /* nautilus: square floor bounds */
+      if(pos.x> SP_BOUND){pos.x= SP_BOUND; if(vel.x>0)vel.x=-vel.x*REST;}
+      if(pos.x<-SP_BOUND){pos.x=-SP_BOUND; if(vel.x<0)vel.x=-vel.x*REST;}
+      if(pos.z> SP_BOUND){pos.z= SP_BOUND; if(vel.z>0)vel.z=-vel.z*REST;}
+      if(pos.z<-SP_BOUND){pos.z=-SP_BOUND; if(vel.z<0)vel.z=-vel.z*REST;}
     }
 
     /* pillar bumpers (hub only, gone during the major boss) */
@@ -2357,7 +3182,7 @@
         awardBadge('heart');
         heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
       }
-    } else if(!major&&hearts===1&&heartCool<=0&&Math.random()<dt*0.2){
+    } else if(!major&&level!=='spiral'&&hearts===1&&heartCool<=0&&Math.random()<dt*0.2){
       var hha, hhr;
       if(level==='corridor'){
         hha=Math.random()*Math.PI*2;
@@ -2413,8 +3238,374 @@
           exitBossRoom();
         }
       }
-    } else {
-      /* exit portal at the top of the climb */
+    } else if(level==='obsidian'){
+      /* ---- THE OBSIDIAN fight ---- */
+      if(!obsDead&&obs){
+        var obsSpin=(obs.tele>0?6:((obs.beamT>0||obs.beamWarnT>0)?2.7:1.6));
+        obsMesh.rotation.y+=obsSpin*dt;
+        obsMesh.rotation.x+=0.5*dt;
+        /* hit feedback: shader glow spike + flash sprite + scale punch */
+        if(obs.flash>0)obs.flash-=dt;
+        var fk=Math.max(0,Math.min(1,obs.flash*4));
+        obs.punch*=Math.max(0,1-dt*6);
+        obsMesh.scale.setScalar(1+obs.punch);
+        /* glow: telegraphs, beam warn, and hits all light it up */
+        var glowTarget=Math.max(fk,
+          obs.tele>0?0.7:0,
+          obs.beamWarnT>0?0.9:0,
+          obs.beamT>0?1:0,
+          obs.phase==='grounded'?0.35:0);
+        obs.glow=(obs.glow||0)+(glowTarget-(obs.glow||0))*Math.min(1,dt*8);
+        obsUniforms.uGlow.value=obs.glow;
+        obsUniforms.uTime.value=elapsed;
+        obsUniforms.uCamPos.value.copy(camera.position);
+        obsHalo.position.set(obsX,obsY,obsZ);
+        obsHalo.material.opacity=0.2+obs.glow*0.5;
+        obsHalo.scale.setScalar(11+obs.glow*5+Math.sin(elapsed*2)*0.4);
+        obsFlash.position.set(obsX,obsY,obsZ);
+        obsFlash.material.opacity=fk;
+        obsFlash.scale.setScalar(4+fk*16);
+        obsLight.position.set(obsX,obsY,obsZ);
+        obsLight.intensity=1.2+obs.glow*7+fk*8;
+        var stage=4-obs.hp; /* 1 calm, 2 quickened, 3 raging */
+        if(obs.phase==='float'){
+          obsY+=(OBS_FLOAT-obsY)*Math.min(1,dt*4);
+          /* movement: calm holds center; quickened orbits; raging STALKS */
+          var tgx=0, tgz=0;
+          if(stage===2){
+            obs.orbitA+=0.45*dt;
+            tgx=Math.cos(obs.orbitA)*6; tgz=Math.sin(obs.orbitA)*6;
+          } else if(stage===3){
+            var pr=Math.hypot(pos.x,pos.z), pc=Math.min(1,13/Math.max(pr,0.01));
+            tgx=pos.x*pc*0.85; tgz=pos.z*pc*0.85;
+          }
+          obsX+=(tgx-obsX)*Math.min(1,dt*(stage===3?1.6:0.8));
+          obsZ+=(tgz-obsZ)*Math.min(1,dt*(stage===3?1.6:0.8));
+          /* raging drip: passive dust rains while it floats */
+          if(stage===3){
+            obs.dripT-=dt;
+            if(obs.dripT<=0){
+              obs.dripT=0.55;
+              for(var dpi=0,dpc=0;dpi<dust.length&&dpc<2;dpi++){
+                var dp=dust[dpi];
+                if(!dp.alive){
+                  dpc++;
+                  dp.alive=true; dp.age=1.5;
+                  dp.x=obsX+(Math.random()-0.5)*3; dp.y=obsY-1.5; dp.z=obsZ+(Math.random()-0.5)*3;
+                  dp.vx=(Math.random()-0.5)*2; dp.vz=(Math.random()-0.5)*2; dp.vy=-(6+Math.random()*3);
+                  dp.mesh.visible=true;
+                }
+              }
+            }
+          }
+          /* beam attack: warn, then 2s of rotation-locked beam */
+          if(obs.beamWarnT>0){
+            obs.beamWarnT-=dt;
+            /* the warn arm marks where the beam will ignite. Meanwhile the
+               gem ABSORBS: streams of motes converge into it from all around,
+               PRISM-style, selling the charge before the release. */
+            for(var abI=0;abI<3;abI++){
+              var abA=Math.random()*Math.PI*2, abR=7+Math.random()*5;
+              var abX=obsX+Math.cos(abA)*abR, abZ=obsZ+Math.sin(abA)*abR;
+              var abY=obsY+(Math.random()-0.5)*6;
+              spawnSpark(abX,abY,abZ,(obsX-abX)*3,(obsY-abY)*3,(obsZ-abZ)*3,0.36);
+            }
+            obsBeamWarn.visible=true;
+            obsBeamWarn.rotation.y=-obs.beamA;
+            obsBeamWarn.position.set(obsX,0,obsZ);
+            if(obs.beamWarnT<=0){
+              obs.beamT=(4-obs.hp)===3?2.6:2.35;
+              obsBeamWarn.visible=false;
+              blastSfx((4-obs.hp)===3?1.6:1.2);
+              burstSparks(obsX,obsY,obsZ,40,10);
+              shakeT=0.2; shakeX=0.6; shakeZ=0.4; fovPulse=0.25;
+            }
+          } else if(obs.beamT>0){
+            obs.beamT-=dt;
+            /* one full 360-degree sweep in a random direction from a random
+               start — hop it when it comes around, or duck under the shaft */
+            obs.beamA+=(obs.beamDir||1)*2.7*dt;
+            var bdur=(stage===3)?2.6:2.35;
+            obsBeam.visible=true;
+            obsBeam.rotation.order='YXZ';
+            /* tubes are built along local +Z (PRISM convention); the warn arm,
+               rake, and collision use the +X basis. yaw = PI/2 - beamA maps
+               the +Z shaft onto the same world angle as everything else. */
+            obsBeam.rotation.y=Math.PI/2-obs.beamA;
+            obsBeam.rotation.x=OBS_PITCH;
+            obsBeam.position.set(obsX,obsY,obsZ);
+            obsRake.visible=true;
+            obsRake.rotation.y=-obs.beamA;
+            obsRake.position.set(obsX,0,obsZ);
+            obsBeam2.visible=(stage===3);
+            obsBeam2.rotation.order='YXZ';
+            obsBeam2.rotation.y=Math.PI/2-obs.beamA+Math.PI;
+            obsBeam2.rotation.x=OBS_PITCH;
+            obsBeam2.position.set(obsX,obsY,obsZ);
+            obsRake2.visible=(stage===3);
+            obsRake2.rotation.y=-obs.beamA+Math.PI;
+            obsRake2.position.set(obsX,0,obsZ);
+            /* shader lifecycle */
+            beamUniforms.uTime.value=elapsed;
+            beamUniforms.uLife.value=1-obs.beamT/bdur;
+            beamUniforms.uPower.value=stage===3?1.5:1.15;
+            var envB=Math.min(1,(bdur-obs.beamT)*8)*Math.min(1,obs.beamT*3);
+            for(var fi=0;fi<finMats.length;fi++){
+              finMats[fi].opacity=0.45*envB*(0.6+0.4*Math.sin(elapsed*20+fi*2.1));
+            }
+            obsBeam.userData.impact.material.opacity=0.9*envB;
+            obsBeam.userData.impact.scale.setScalar(3+4*envB);
+            if(Math.random()<0.6){
+              var ba2=obs.beamA, brr=OBS_RAKE*(0.3+Math.random()*0.7);
+              spawnSpark(obsX+Math.cos(ba2)*brr, obsY-(obsY-0.9)*(brr/OBS_RAKE),
+                obsZ+Math.sin(ba2)*brr,
+                Math.cos(ba2)*10,(Math.random()-0.5)*3,Math.sin(ba2)*10,0.5);
+            }
+            /* ray hit: near the beam line, in its half-plane, low enough to clip */
+            /* damage only once the beam is visibly lit (shader fade-in done) */
+            if(iframes<=0&&pos.y<2.3&&(bdur-obs.beamT)>0.12){
+              var ba=Math.atan2(pos.z-obsZ,pos.x-obsX)-obs.beamA;
+              var br=Math.hypot(pos.x-obsX,pos.z-obsZ);
+              var beamHit=Math.abs(Math.sin(ba))*br<1.35&&br<OBS_R;
+              /* raging: a second arm sweeps opposite — both half-planes clip */
+              var inArm=stage===3?beamHit:(beamHit&&Math.cos(ba)>0);
+              if(br>OBS_RAKE-0.8&&inArm){
+                takeHit(obsX,obsZ);
+              }
+            }
+            if(obs.beamT<=0){obsBeam.visible=false;obsBeam2.visible=false;
+              obsRake.visible=false;obsRake2.visible=false;obs.cool=1.6;}
+          } else {
+            obs.cool-=dt;
+            if(obs.cool<=0&&obs.tele<=0)obs.tele=0.6; /* spin-up telegraph */
+            if(obs.tele>0){
+              obs.tele-=dt;
+              if(obs.tele<=0){
+                /* attack pattern: spray, beam, spray, then lower */
+                if(obs.attackIdx===1){
+                  obs.beamWarnT=0.85; /* long enough for the absorption to read */
+                  chargeSfx();
+                  obs.beamA=Math.random()*Math.PI*2;          /* random start... */
+                  obs.beamDir=Math.random()<0.5?-1:1;         /* ...random direction */
+                } else {
+                  sprayDust(); thudSfx();
+                  if(stage>=2)setTimeout(function(){ if(state==='play'&&level==='obsidian'&&!obsDead)sprayDust(); },260);
+                }
+                obs.attackIdx++;
+                if(obs.attackIdx>=3){
+                  obs.phase='lower';
+                  obs.slamsLeft=(stage===3?1:0); /* rage: it strikes twice */
+                  obsBeam.visible=false;obsBeam2.visible=false;
+                  obsRake.visible=false;obsRake2.visible=false;obsBeamWarn.visible=false;
+                }
+                else if(obs.attackIdx!==1)obs.cool=[0,2.2,1.6,1.2][stage];
+                else obs.cool=0.01;
+              }
+            }
+          }
+        } else if(obs.phase==='lower'){
+          obs.fallV=(obs.fallV||3)+34*dt; /* it SLAMS down under its own weight */
+          obsY-=obs.fallV*dt;
+          if(obsY<=OBS_GROUND){
+            obsY=OBS_GROUND; obs.fallV=0;
+            obs.phase='grounded';
+            obs.vulT=[0,3.5,3.0,2.5][stage];
+            obs.ringT=0.35; /* punish rings start pulsing */
+            spawnShock(obsX,obsZ);
+            slamDustRing();
+            burstSparks(obsX,1.5,obsZ,50,12);
+            blastSfx(1.1);
+            shakeT=0.3; shakeX=0.7; shakeZ=0.3;
+            fovPulse=0.35;
+            boomSfx(); thudSfx();
+            if(iframes<=0&&grounded&&Math.hypot(pos.x-obsX,pos.z-obsZ)<5.5){
+              takeHit(obsX,obsZ); /* standing under the slam */
+            }
+          }
+        } else if(obs.phase==='grounded'){
+          obs.vulT-=dt;
+          obsMesh.rotation.y+=3*dt; /* agitated */
+          obs.ringT-=dt;
+          if(obs.ringT<=0){ firePunishRing(); obs.ringT=1.15; thudSfx(); }
+          if(obs.vulT<=0){
+            if(obs.slamsLeft>0){obs.slamsLeft--;obs.phase='restrike';}
+            else obs.phase='rise';
+          }
+        } else if(obs.phase==='restrike'){ /* rage: it rises fast and slams AGAIN — on you */
+          obsY+=16*dt;
+          obsX+=(pos.x-obsX)*Math.min(1,dt*3.2);
+          obsZ+=(pos.z-obsZ)*Math.min(1,dt*3.2);
+          if(obsY>=10.5){obs.phase='lower';obs.fallV=6;}
+        } else if(obs.phase==='rise'){
+          obsY+=5.5*dt;
+          if(obsY>=OBS_FLOAT){
+            obsY=OBS_FLOAT;obs.phase='float';obs.attackIdx=0;
+            obs.cool=[0,2.4,1.8,1.4][stage];
+          }
+        }
+        obsMesh.position.set(obsX,obsY,obsZ);
+        obsShadowM.position.set(obsX+SDX*obsY*0.4,0.03,obsZ+SDZ*obsY*0.4);
+        obsShadowM.scale.setScalar(Math.max(0.9,2.1-obsY*0.08));
+      }
+      /* poison tint: the ball darkens as ink accumulates */
+      var pk=inkFill/INK_CAP;
+      ballMat.color.setRGB(
+        (0xe8/255)*(1-pk*0.72),
+        (0x26/255)*(1-pk*0.72),
+        (0x2a/255)*(1-pk*0.72));
+      /* dust */
+      for(i=0;i<dust.length;i++){
+        var du=dust[i];
+        if(!du.alive)continue;
+        du.age+=dt;
+        du.x+=du.vx*dt; du.y+=du.vy*dt; du.z+=du.vz*dt;
+        if(du.y<=0.35&&du.vy<0){ /* it lands — and stains */
+          du.alive=false;du.mesh.visible=false;
+          if(Math.random()<0.4)spawnStain(du.x,du.z);
+          continue;
+        }
+        du.mesh.position.set(du.x,du.y,du.z);
+        if(du.age>4.5||Math.hypot(du.x,du.z)>OBS_R+1.5){du.alive=false;du.mesh.visible=false;continue;}
+        if(iframes<=0
+           &&Math.hypot(pos.x-du.x,pos.z-du.z)<RADIUS+0.3
+           &&Math.abs(pos.y-du.y)<RADIUS+0.35){
+          du.alive=false; du.mesh.visible=false;
+          inkFill++; lastInkT=elapsed;
+          tone(210,0.05,'square',0.05);
+          inkFillEl.style.width=Math.min(100,inkFill/INK_CAP*100)+'%';
+          if(inkFill>=INK_CAP){
+            inkFill=0;
+            inkFillEl.style.width='0%';
+            takeHit(obsX,obsZ);
+          }
+        }
+      }
+      pPoints.visible=true;
+      updateSparks(dt);
+      /* punish rings expand; hop them */
+      for(i=0;i<punishRings.length;i++){
+        var pring=punishRings[i];
+        if(!pring.alive)continue;
+        pring.r+=7.5*dt;
+        pring.mesh.scale.setScalar(pring.r);
+        pring.mesh.material.opacity=Math.max(0,0.85-(pring.r/10)*0.7);
+        if(pring.r>10){pring.alive=false;pring.mesh.visible=false;continue;}
+        if(iframes<=0&&pos.y<2.2){
+          var prd=Math.hypot(pos.x-pring.x,pos.z-pring.z);
+          if(Math.abs(prd-pring.r)<0.65)takeHit(pring.x,pring.z);
+        }
+      }
+      /* stains: standing in poison feeds the meter */
+      stainTickT-=dt;
+      for(i=0;i<stains.length;i++){
+        var stn=stains[i];
+        if(!stn.alive)continue;
+        stn.t-=dt;
+        if(stn.t<2)stn.mesh.material.opacity=Math.max(0,stn.t/2)*0.8;
+        if(stn.t<=0){stn.alive=false;stn.mesh.visible=false;continue;}
+        if(grounded&&stainTickT<=0&&iframes<=0
+           &&Math.hypot(pos.x-stn.x,pos.z-stn.z)<1.05*stn.mesh.scale.x+RADIUS*0.5){
+          stainTickT=0.5;
+          inkFill++; lastInkT=elapsed;
+          tone(180,0.05,'square',0.05);
+          inkFillEl.style.width=Math.min(100,inkFill/INK_CAP*100)+'%';
+          if(inkFill>=INK_CAP){inkFill=0;inkFillEl.style.width='0%';takeHit(stn.x,stn.z);}
+        }
+      }
+      /* clean play recovers: after 2.5s untouched the ink drains slowly */
+      if(inkFill>0&&elapsed-lastInkT>2.5){
+        inkDecayT-=dt;
+        if(inkDecayT<=0){
+          inkDecayT=1.6;
+          inkFill=Math.max(0,inkFill-1);
+          inkFillEl.style.width=Math.min(100,inkFill/INK_CAP*100)+'%';
+        }
+      } else inkDecayT=0.8;
+      /* shards */
+      for(i=0;i<shards.length;i++){
+        var shd=shards[i];
+        if(!shd.alive)continue;
+        shd.t-=dt;
+        shd.vy-=G*dt*0.6;
+        shd.x+=shd.vx*dt; shd.y+=shd.vy*dt; shd.z+=shd.vz*dt;
+        if(shd.y<0.3){shd.y=0.3;shd.vy=Math.abs(shd.vy)*0.3;}
+        shd.mesh.position.set(shd.x,shd.y,shd.z);
+        shd.mesh.rotation.x+=4*dt; shd.mesh.rotation.y+=5*dt;
+        shd.mesh.material.opacity=Math.max(0,shd.t/1.5);
+        shd.mesh.scale.setScalar(Math.max(0.1,shd.t/1.5));
+        if(shd.t<=0){shd.alive=false;shd.mesh.visible=false;}
+      }
+      /* exit portal after the kill */
+      if(obsDead){
+        obsExitPortal.rotation.y+=1.4*dt;
+        obsExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+        if(Math.hypot(pos.x-obsExitPortal.position.x,pos.z-obsExitPortal.position.z)<2){
+          returnToHub();
+        }
+      }
+    } else if(level==='spiral'){
+      spiralExitPortal.rotation.y+=1.4*dt;
+      spiralExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+      if(Math.hypot(pos.x-spiralExitPortal.position.x,pos.z-spiralExitPortal.position.z)<2
+         &&Math.abs(pos.y-spiralExitPortal.position.y)<2.5){
+        enterObsidian();
+      }
+      var spLeft=0;
+      for(i=0;i<spiralCoins.length;i++){
+        var sc=spiralCoins[i];
+        if(!sc.alive)continue;
+        spLeft++;
+        sc.mesh.rotation.y+=4*dt;
+        sc.mesh.position.y=sc.h+0.75+Math.sin(elapsed*3+i)*0.08;
+        if(Math.hypot(pos.x-sc.x,pos.z-sc.z)<RADIUS+0.7&&Math.abs(pos.y-sc.mesh.position.y)<1.6){
+          sc.alive=false; sc.mesh.visible=false; spLeft--;
+          collected++; combo++;
+          coinScore+=5*Math.min(combo,12);
+          coinBlip(); updateHUD();
+          flyCoin(sc.x,sc.mesh.position.y,sc.z);
+        }
+      }
+      if(spLeft===0&&!spiralBonusGiven){
+        spiralBonusGiven=true;
+        coinScore+=1000;
+        toastQueue.push('ALL COINS +1000'); showNextToast();
+        badgeSfx(); fovPulse=0.3; updateHUD();
+      }
+      dropTimer-=dt;
+      if(dropTimer<=0){ spawnInkDrop(); dropTimer=Math.max(0.55,1.4-elapsed*0.006); }
+      for(i=0;i<inkDrops.length;i++){
+        var dr=inkDrops[i];
+        if(!dr.alive)continue;
+        dr.y-=16*dt;
+        dr.mesh.position.y=dr.y;
+        dr.tele.scale.setScalar(0.2+Math.max(0,1-(dr.y-dr.th)/30)*1.1);
+        if(iframes<=0&&Math.hypot(pos.x-dr.x,pos.z-dr.z)<RADIUS+0.5
+           &&Math.abs(pos.y-dr.y)<RADIUS+0.6){
+          dr.alive=false; dr.mesh.visible=false; dr.tele.visible=false;
+          takeHit(dr.x,dr.z);
+          continue;
+        }
+        if(dr.y<=dr.th+0.5){
+          dr.alive=false; dr.mesh.visible=false; dr.tele.visible=false;
+          spawnBlotch(dr.x,dr.z,dr.th);
+          thudSfx();
+        }
+      }
+      for(i=0;i<blotches.length;i++){
+        var bl=blotches[i];
+        if(!bl.alive)continue;
+        bl.t-=dt;
+        if(bl.mesh.scale.x<1)bl.mesh.scale.setScalar(Math.min(1,bl.mesh.scale.x+dt*5));
+        if(bl.t<1.5)bl.mesh.material.opacity=Math.max(0,bl.t/1.5)*0.95;
+        if(bl.t<=0){bl.alive=false;bl.mesh.visible=false;continue;}
+        if(iframes<=0&&grounded
+           &&Math.hypot(pos.x-bl.x,pos.z-bl.z)<1.4*bl.mesh.scale.x+RADIUS*0.4
+           &&Math.abs((pos.y-RADIUS)-bl.h)<0.8){
+          takeHit(bl.x,bl.z);
+        }
+      }
+    } else if(level==='corridor'){
+      /* exit portal at the top of the climb → THE NAUTILUS */
       exitPortal.visible=corrPortalActive;
       if(corrPortalActive){
         exitPortal.rotation.y+=1.4*dt;
@@ -2520,8 +3711,10 @@
     var sp2=Math.hypot(vel.x,vel.z);
     var stretch=1+Math.min(sp2/MAX_SPEED,1)*0.12;
     /* airborne scale: ball grows toward the camera; ramp launches reach ~11 high */
-    var airH=Math.max(0,pos.y-RADIUS-terrainH(pos.x,pos.z));
-    if(airH>=9.5)awardBadge('skyhigh');
+    var airH=level==='spiral'
+      ? Math.max(0,pos.y-lastGroundY)
+      : Math.max(0,pos.y-RADIUS-terrainH(pos.x,pos.z));
+    if(airH>=9.5&&level!=='spiral')awardBadge('skyhigh');
     var airScale=1+Math.min(airH/10,1)*0.9;
     headG.rotation.y=sp2>0.5?Math.atan2(vel.x,vel.z):headG.rotation.y;
     headG.scale.set(sx*airScale,sy*airScale,sx*stretch*airScale);
@@ -2574,14 +3767,17 @@
     spot.position.set(pos.x,pos.y+19,pos.z);
     spotTarget.position.set(pos.x,0,pos.z);
 
-    var h=pos.y-RADIUS-terrainH(pos.x,pos.z);
+    var h=level==='spiral'
+      ? Math.max(0,pos.y-lastGroundY)
+      : pos.y-RADIUS-terrainH(pos.x,pos.z);
     var soff=0.3+h*0.5; /* drop shadow drifts with altitude */
     shadow.position.x=pos.x+SDX*soff; shadow.position.z=pos.z+SDZ*soff;
-    shadow.position.y=terrainH(shadow.position.x,shadow.position.z)+0.02;
+    shadow.position.y=(level==='spiral'?Math.max(0,lastGroundY-RADIUS):terrainH(shadow.position.x,shadow.position.z))+0.02;
     shadow.scale.setScalar(Math.max(0.5,1-h*0.09));
     shadow.material.opacity=Math.max(0.35,1-h*0.12);
 
-    camTarget.set(pos.x,0,pos.z);
+    if(level==='spiral') camTarget.set(pos.x,pos.y*0.7,pos.z);
+    else camTarget.set(pos.x,0,pos.z);
     camera.position.lerp(camTarget.clone().add(CAM_OFFSET),0.08);
     if(!reducedMotion){
       if(shakeT>0){ /* directional kick, decaying wobble */
@@ -2599,6 +3795,16 @@
       }
     }
     camera.lookAt(camTarget.x,0,camTarget.z);
+
+    /* ink meter hovers above the ball in the boss room */
+    if(level==='obsidian'&&state==='play'){
+      inkMeterEl.style.display='block';
+      projV.set(pos.x,pos.y+2.6,pos.z).project(camera);
+      inkMeterEl.style.left=((projV.x*0.5+0.5)*window.innerWidth)+'px';
+      inkMeterEl.style.top=((-projV.y*0.5+0.5)*window.innerHeight)+'px';
+    } else {
+      inkMeterEl.style.display='none';
+    }
 
     renderer.render(scene,camera);
   }
