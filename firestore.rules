@@ -19,15 +19,20 @@ service cloud.firestore {
     }
   }
 
+  /* JS clients send numbers as floats — accept whole numbers, not only int type */
+  function isWhole(n) {
+    return n is int || (n is number && n % 1 == 0);
+  }
+
   function isValidScore(data) {
     return data.keys().hasOnly(['name', 'score', 'time', 'updatedAt', 'badges'])
       && data.name is string
       && data.name.size() >= 2
       && data.name.size() <= 12
-      && data.score is int
+      && isWhole(data.score)
       && data.score >= 0
       && data.score <= 999999
-      && data.time is int
+      && isWhole(data.time)
       && data.time >= 0
       && data.time <= 999999
       && data.updatedAt == request.time
@@ -40,7 +45,8 @@ service cloud.firestore {
       || request.resource.data.badges.hasAll(resource.data.badges);
   }
 
-  /* New high score may rewrite time; otherwise time only stays or grows. */
+  /* New high score may rewrite time; otherwise time only stays or grows.
+     Legacy docs without time are allowed to set it. */
   function timeOk() {
     return request.resource.data.score > resource.data.score
       || !('time' in resource.data)
