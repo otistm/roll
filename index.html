@@ -1164,7 +1164,7 @@
     if(lavaDone) return;
     lavaDone=true;
     spawnShock(lavaExitPad.x,lavaExitPad.z);
-    boomSfx();
+    boomSfx(); portalSfx();
     toastQueue.push('LAVA CLEAR'); showNextToast();
     coinScore+=500; updateHUD();
     document.body.classList.remove('lava');
@@ -2205,11 +2205,29 @@
   var lastInkT=-99, inkDecayT=0;
   var heartDrop=null, heartCool=0;
 
-  /* WebAudio: coin pitch ladder (Mario-style), thud, boom */
+  /* WebAudio synth + sample SFX (coin / portal) */
   var AC=null;
+  var sfxCoin=null, sfxPortal=null;
+  function makeSfx(src){
+    var a=new Audio(src);
+    a.preload='auto';
+    a.volume=0.7;
+    return a;
+  }
+  function playSample(base){
+    if(!base) return;
+    try{
+      var a=base.cloneNode();
+      a.volume=base.volume;
+      var p=a.play();
+      if(p&&typeof p.catch==='function') p.catch(function(){});
+    }catch(e){}
+  }
   function audioInit(){
     if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}}
     if(AC&&AC.state==='suspended')AC.resume();
+    if(!sfxCoin) sfxCoin=makeSfx('sfx/roll_coin.mp3');
+    if(!sfxPortal) sfxPortal=makeSfx('sfx/roll_portal.mp3');
   }
   function tone(freq,dur,type,vol,sweepTo){
     if(!AC)return;
@@ -2222,7 +2240,8 @@
     o.connect(g); g.connect(AC.destination);
     o.start(); o.stop(AC.currentTime+dur+0.02);
   }
-  function coinBlip(){ tone(523*Math.pow(2,Math.min(combo,24)/12),0.09,'square',0.055); }
+  function coinBlip(){ playSample(sfxCoin); }
+  function portalSfx(){ playSample(sfxPortal); }
   function boostSfx(){ tone(320,0.35,'sawtooth',0.09,1100); }
   function thudSfx(){ tone(140,0.16,'sine',0.15,50); }
   function boomSfx(){ tone(90,0.28,'sine',0.2,36); tone(45,0.3,'triangle',0.12); }
@@ -3498,6 +3517,7 @@
   function enterHubDestination(){
     portalUnlocked=false;
     hubPortal.visible=false; hubPortalShadow.visible=false;
+    portalSfx();
     if(hubSeq===0) enterNautilus();
     else if(hubSeq===1) startMajor();
     else if(hubSeq===2) enterCorridor();
@@ -3643,6 +3663,7 @@
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
   }
   function exitCorridor(){
+    portalSfx();
     advanceHubSeq();
     returnToHub();
   }
@@ -3937,6 +3958,7 @@
     bossExitActive=false;
     bossExitPortal.visible=false;
     FIELD_OFF=false;
+    portalSfx();
     advanceHubSeq();
     returnToHub();
   }
@@ -4915,6 +4937,7 @@
         obsExitPortal.rotation.y+=1.4*dt;
         obsExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
         if(Math.hypot(pos.x-obsExitPortal.position.x,pos.z-obsExitPortal.position.z)<2){
+          portalSfx();
           advanceHubSeq();
           returnToHub();
         }
@@ -5076,6 +5099,7 @@
       spiralExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
       if(Math.hypot(pos.x-spiralExitPortal.position.x,pos.z-spiralExitPortal.position.z)<2
          &&Math.abs(pos.y-spiralExitPortal.position.y)<2.5){
+        portalSfx();
         advanceHubSeq();
         returnToHub();
       }
