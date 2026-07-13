@@ -28,6 +28,13 @@
   .heart { width:10px; height:10px; border-radius:50%; background:#111; border:1.5px solid #111; }
   .heart.lost { background:transparent; }
 
+  /* LAVA PITS: keep HUD readable over ink floor */
+  body.lava #score, body.lava #timer, body.lava #coins {
+    text-shadow:0 0 8px #fff, 0 1px 0 #fff, 0 -1px 0 #fff, 1px 0 0 #fff, -1px 0 0 #fff;
+  }
+  body.lava .heart { box-shadow:0 0 0 2px #fff; }
+  body.lava .heart.lost { box-shadow:0 0 0 2px rgba(255,255,255,0.85); background:rgba(255,255,255,0.35); }
+
   /* Coin counter — Mario-style spinning coin in the header */
   #coins { display:flex; align-items:center; gap:8px;
     font-size:11px; font-weight:600; letter-spacing:0.3em; }
@@ -103,9 +110,9 @@
   #toast {
     position:fixed; top:calc(env(safe-area-inset-top,0px) + 58px); left:50%;
     transform:translate(-50%,-12px); opacity:0; z-index:9; pointer-events:none;
-    background:#fff; border:1.5px solid #111; border-radius:999px;
-    padding:10px 20px; font-size:10px; font-weight:600;
-    letter-spacing:0.34em; text-indent:0.34em; color:#111; white-space:nowrap;
+    background:#fff; border:2px solid #111; border-radius:999px;
+    padding:14px 28px; font-size:15px; font-weight:600;
+    letter-spacing:0.28em; text-indent:0.28em; color:#111; white-space:nowrap;
     transition:opacity 0.25s ease, transform 0.25s cubic-bezier(.2,1.4,.4,1);
   }
   #toast.show { opacity:1; transform:translate(-50%,0); }
@@ -190,6 +197,7 @@
     overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
   }
   .overlay.hidden { display:none; }
+  #startOverlay { background:#fff; }
   .overlay h1 { font-size:34px; font-weight:700; letter-spacing:0.5em; margin-left:0.5em; }
   .overlay p  { font-size:11px; letter-spacing:0.16em; line-height:1.85; color:#555; }
   .overlay .cta { font-size:11px; font-weight:600; letter-spacing:0.42em; margin-left:0.42em;
@@ -204,6 +212,32 @@
   #finalCause { font-size:11px; font-weight:600; letter-spacing:0.28em; text-indent:0.28em; color:#e8262a; }
   #finalCause.hidden, #finalHigh.hidden { display:none; }
   #finalHigh { font-size:12px; font-weight:700; letter-spacing:0.34em; text-indent:0.34em; color:#111; }
+
+  /* Death resolution screen — red wash, light type */
+  #overOverlay {
+    background:rgba(232,38,42,0.94);
+    color:#fff;
+  }
+  #overOverlay h1,
+  #overOverlay #finalScore,
+  #overOverlay #finalHigh,
+  #overOverlay #finalCause { color:#fff; }
+  #overOverlay #finalTime,
+  #overOverlay #badgeLabel,
+  #overOverlay .board h2,
+  #overOverlay .board .empty,
+  #overOverlay .board .status,
+  #overOverlay .board .rank { color:rgba(255,255,255,0.72); }
+  #overOverlay .board li { color:#fff; border-bottom-color:rgba(255,255,255,0.22); }
+  #overOverlay .board li.padFocus {
+    box-shadow:inset 0 0 0 2px #fff;
+    background:rgba(255,255,255,0.12);
+  }
+  #overOverlay .cta { border-color:#fff; color:#fff; }
+  #overOverlay .cta.padFocus { box-shadow:0 0 0 2px #fff; }
+  #overOverlay .badge { border-color:rgba(255,255,255,0.4); color:rgba(255,255,255,0.4); }
+  #overOverlay .badge.got { border-color:#fff; background:#fff; color:#e8262a; }
+  #overOverlay .badge.sel { box-shadow:0 0 0 2px #fff; }
 
   #nameField {
     width:min(260px,78vw); padding:12px 16px; border:1.5px solid #111; border-radius:0;
@@ -353,7 +387,8 @@
   var obsMeshes=[];         /* THE OBSIDIAN boss room meshes (declared early) */
   var OBS_R=22;             /* boss room radius */
   var OBS_FLOAT=14, OBS_GROUND=3.2; /* float + slam heights (needed at mesh build time) */
-  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss */
+  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss, 'lava' pits */
+  var lavaMeshes=[];        /* LAVA PITS meshes */
   var PIPE_K=0.032, PIPE_HW=10, CORR_XMAX=12.5, CORR_START=6, CORR_END=-130;
   var DIAMOND=0xbfeef8;
   /* THE NAUTILUS: conical spiral path to the ceiling */
@@ -390,6 +425,7 @@
     if(FIELD_OFF)return 0;
     if(level==='spiral')return 0; /* helix is one-way support, not terrain */
     if(level==='obsidian')return 0;
+    if(level==='lava') return lavaTerrainH(x,z);
     if(level==='corridor'){ /* half-pipe: parabolic valley, steep outer walls */
       var d=Math.abs(x);
       return d<=PIPE_HW ? PIPE_K*d*d : PIPE_K*PIPE_HW*PIPE_HW+(d-PIPE_HW)*2;
@@ -563,7 +599,112 @@
       corrReg(rail);
     });
   })();
-  /* portals: ink torus rings — one in the hub (enter), one atop the climb (exit) */
+  /* portals: ink tube rings — hub portal shape follows the next destination */
+  function portalOutlinePoints(kind, R){
+    var pts=[], i, t, j;
+    function add(x,y){ pts.push(new THREE.Vector3(x,y,0)); }
+    if(kind==='circle'){
+      for(i=0;i<=64;i++){
+        var a=i/64*Math.PI*2;
+        add(Math.cos(a)*R, Math.sin(a)*R);
+      }
+    } else if(kind==='square'){
+      var s=R*0.78;
+      var sq=[[s,s],[-s,s],[-s,-s],[s,-s]];
+      for(i=0;i<4;i++){
+        var a0=sq[i], a1=sq[(i+1)%4];
+        for(j=0;j<16;j++){
+          t=j/16;
+          add(a0[0]+(a1[0]-a0[0])*t, a0[1]+(a1[1]-a0[1])*t);
+        }
+      }
+      add(sq[0][0], sq[0][1]);
+    } else if(kind==='diamond'){
+      var d=R*0.95;
+      var dia=[[0,d],[-d,0],[0,-d],[d,0]];
+      for(i=0;i<4;i++){
+        var d0=dia[i], d1=dia[(i+1)%4];
+        for(j=0;j<16;j++){
+          t=j/16;
+          add(d0[0]+(d1[0]-d0[0])*t, d0[1]+(d1[1]-d0[1])*t);
+        }
+      }
+      add(dia[0][0], dia[0][1]);
+    } else if(kind==='hex'){
+      var hex=[];
+      for(i=0;i<6;i++){
+        var ha=Math.PI/6+i*Math.PI/3;
+        hex.push([Math.cos(ha)*R*0.92, Math.sin(ha)*R*0.92]);
+      }
+      for(i=0;i<6;i++){
+        var h0=hex[i], h1=hex[(i+1)%6];
+        for(j=0;j<12;j++){
+          t=j/12;
+          add(h0[0]+(h1[0]-h0[0])*t, h0[1]+(h1[1]-h0[1])*t);
+        }
+      }
+      add(hex[0][0], hex[0][1]);
+    } else { /* star */
+      var spikes=5, outer=R, inner=R*0.42, star=[];
+      for(i=0;i<spikes*2;i++){
+        var sa=-Math.PI/2+i*Math.PI/spikes;
+        var rr=i%2===0?outer:inner;
+        star.push([Math.cos(sa)*rr, Math.sin(sa)*rr]);
+      }
+      for(i=0;i<star.length;i++){
+        var s0=star[i], s1=star[(i+1)%star.length];
+        for(j=0;j<8;j++){
+          t=j/8;
+          add(s0[0]+(s1[0]-s0[0])*t, s0[1]+(s1[1]-s0[1])*t);
+        }
+      }
+      add(star[0][0], star[0][1]);
+    }
+    return pts;
+  }
+  function makePortalTubeGeo(kind){
+    var pts=portalOutlinePoints(kind, 1.5);
+    var path=new THREE.CurvePath();
+    for(var i=0;i<pts.length-1;i++) path.add(new THREE.LineCurve3(pts[i], pts[i+1]));
+    return new THREE.TubeGeometry(path, Math.max(48, pts.length), 0.22, 10, false);
+  }
+  function makePortalShadowGeo(kind){
+    var sh=new THREE.Shape(), R=1.5, i;
+    if(kind==='circle'){
+      sh.absarc(0,0,R*0.95,0,Math.PI*2,false);
+    } else if(kind==='square'){
+      var s=R*0.78;
+      sh.moveTo(s,s); sh.lineTo(-s,s); sh.lineTo(-s,-s); sh.lineTo(s,-s); sh.lineTo(s,s);
+    } else if(kind==='diamond'){
+      var d=R*0.95;
+      sh.moveTo(0,d); sh.lineTo(-d,0); sh.lineTo(0,-d); sh.lineTo(d,0); sh.lineTo(0,d);
+    } else if(kind==='hex'){
+      for(i=0;i<6;i++){
+        var ha=Math.PI/6+i*Math.PI/3;
+        var hx=Math.cos(ha)*R*0.92, hy=Math.sin(ha)*R*0.92;
+        if(i===0) sh.moveTo(hx,hy); else sh.lineTo(hx,hy);
+      }
+      sh.closePath();
+    } else {
+      var spikes=5, outer=R*0.95, inner=R*0.42;
+      for(i=0;i<spikes*2;i++){
+        var a=-Math.PI/2+i*Math.PI/spikes;
+        var rr=i%2===0?outer:inner;
+        var x=Math.cos(a)*rr, y=Math.sin(a)*rr;
+        if(i===0) sh.moveTo(x,y); else sh.lineTo(x,y);
+      }
+      sh.closePath();
+    }
+    return new THREE.ShapeGeometry(sh);
+  }
+  /* seq: nautilus, inkwell, corridor, obsidian, lava — always a circle, color marks the route */
+  var HUB_PORTAL_COLORS=[BLUE, INK, GOLD, DIAMOND, RED];
+  var hubPortalGeos={
+    circle:makePortalTubeGeo('circle')
+  };
+  var hubPortalShadowGeos={
+    circle:makePortalShadowGeo('circle')
+  };
   function makePortal(x,z,color){
     var t=new THREE.Mesh(new THREE.TorusGeometry(1.5,0.22,14,36),
       new THREE.MeshToonMaterial({color:(color||INK),gradientMap:gradientMap}));
@@ -573,24 +714,466 @@
   /* Hub portal floats between the two ramp lips at launch height —
      you must ride a ramp to reach it (sim-verified: base and boosted
      launches from both ramps pass through; a plain hop tops out below). */
-  var hubPortal=makePortal(-0.6,-0.8);
-  hubPortal.position.y=7.6;
+  var hubPortal=new THREE.Mesh(hubPortalGeos.circle,
+    new THREE.MeshToonMaterial({color:HUB_PORTAL_COLORS[0],gradientMap:gradientMap}));
+  hubPortal.position.set(-0.6,7.6,-0.8);
   hubPortal.scale.setScalar(1.25);
   hubPortal.visible=false;
   scene.add(hubPortal); fieldMeshes.push(hubPortal);
   /* its drop shadow on the floor sells the altitude */
-  var hubPortalShadow=new THREE.Mesh(new THREE.CircleGeometry(1.5,32),
+  var hubPortalShadow=new THREE.Mesh(hubPortalShadowGeos.circle,
     new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.6}));
   hubPortalShadow.rotation.x=-Math.PI/2;
   hubPortalShadow.position.set(-0.6+SDX*3.4,0.02,-0.8+SDZ*3.4);
   hubPortalShadow.visible=false;
   scene.add(hubPortalShadow); fieldMeshes.push(hubPortalShadow);
+  function setHubPortalColor(seq){
+    var n=HUB_PORTAL_COLORS.length;
+    var col=HUB_PORTAL_COLORS[((seq%n)+n)%n];
+    hubPortal.material.color.setHex(col);
+  }
   var exitPortal=corrReg(makePortal(0,CORR_END));
   /* Boss-room exit: appears where the giant fell; leads to the climb */
   var bossExitPortal=makePortal(0,0);
   bossExitPortal.visible=false;
   scene.add(bossExitPortal);
   var bossExitActive=false;
+
+  /* ============================ LAVA PITS ============================ */
+  var LAVA={
+    platH:0.55, platR:2.05, cycle:11, activeT:7.6, warnT:1.8, riseT:0.7,
+    chainLen:48, blowMin:4.8, blowMax:8.0, blowTele:1.35, blowErupt:0.85, blowR:1.35
+  };
+  var lavaSeed=12345;
+  function lavaRnd(){ lavaSeed=(lavaSeed*1664525+1013904223)>>>0; return lavaSeed/4294967296; }
+  function lavaRr(a,b){ return a+lavaRnd()*(b-a); }
+  function generateLavaLevel(){
+    var plats=[], main=[];
+    plats.push({x:0,z:0,r:2.35,permanent:true,group:-1,path:'main',h:0});
+    main.push(plats[0]);
+    var x=0, z=0, i, elev=0;
+    for(i=0;i<LAVA.chainLen;i++){
+      /* wide pads, long gaps — hop required between landings */
+      z-=4.9+lavaRnd()*1.1;
+      x=Math.max(-4.5, Math.min(4.5, x+(lavaRnd()*2-1)*1.9));
+      /* elevation terraces: climb, drop, and occasional tall pillars */
+      var step=i/(LAVA.chainLen-1||1);
+      var wave=Math.sin(step*Math.PI*2.4)*1.7+Math.sin(step*Math.PI*0.85)*1.1;
+      elev=Math.max(0, wave+(lavaRnd()*2-1)*0.4);
+      if(i>3&&i%6===0) elev=Math.min(4.8, elev+1.5+lavaRnd()*1.1);
+      if(i>5&&i%8===3) elev=Math.max(0, elev-(1.4+lavaRnd()*1.0));
+      if(lavaRnd()<0.1) elev=Math.min(5.2, elev+2.0+lavaRnd()*0.8);
+      /* keep consecutive hops reachable (max ~2.6 rise between pads) */
+      var prevH=main[main.length-1].h||0;
+      if(elev>prevH+2.6) elev=prevH+2.2+lavaRnd()*0.35;
+      if(elev<prevH-2.8) elev=prevH-2.4-lavaRnd()*0.3;
+      elev=Math.max(0, elev);
+      var mp={x:x,z:z,r:LAVA.platR,permanent:false,group:i%2,path:'main',h:elev};
+      plats.push(mp); main.push(mp);
+    }
+    z-=5.4;
+    var exitH=Math.max(0, (main[main.length-1].h||0)*0.55);
+    plats.push({x:x*0.3,z:z,r:2.5,permanent:true,group:-1,isExit:true,path:'main',h:exitH});
+
+    /* side branches: hop off the spine for a heart / diamond — climb for the prize */
+    function addBranch(fork, side, n, reward){
+      var bx=fork.x, bz=fork.z, bi, elevB=fork.h||0;
+      for(bi=0;bi<n;bi++){
+        bz-=4.7+lavaRnd()*0.7;
+        bx=fork.x+side*(5.0+bi*1.15+(lavaRnd()*2-1)*0.35);
+        bx=Math.max(-13, Math.min(13, bx));
+        elevB+=0.35+lavaRnd()*0.55+(reward?0.25:0);
+        if(elevB>fork.h+3.8) elevB=fork.h+3.8;
+        var last=bi===n-1;
+        var bp={
+          x:bx,z:bz,
+          r:last?2.15:LAVA.platR*0.95,
+          permanent:!!last,
+          group:side<0?0:1,
+          path:reward||'spur',
+          h:elevB
+        };
+        if(last&&reward) bp.reward=reward;
+        plats.push(bp);
+      }
+    }
+    addBranch(main[8], -1, 8, 'heart');
+    addBranch(main[Math.min(28, main.length-1)], 1, 8, 'diamond');
+    /* coin spur mid-route */
+    addBranch(main[Math.min(18, main.length-1)], lavaRnd()<0.5?-1:1, 6, null);
+    return plats;
+  }
+  function lavaPlatState(p,t){
+    if(p.permanent) return {state:'active',k:0};
+    var off=p.group===1?LAVA.cycle/2:0;
+    var ph=((t+off)%LAVA.cycle+LAVA.cycle)%LAVA.cycle;
+    if(ph<LAVA.activeT) return {state:'active',k:ph/LAVA.activeT};
+    if(ph<LAVA.activeT+LAVA.warnT) return {state:'warn',k:(ph-LAVA.activeT)/LAVA.warnT};
+    return {state:'gone',k:(ph-LAVA.activeT-LAVA.warnT)/(LAVA.cycle-LAVA.activeT-LAVA.warnT)};
+  }
+  function lavaReg(m){ m.visible=false; scene.add(m); lavaMeshes.push(m); return m; }
+  /* SEA OF INK — viscous black swells under the pads (ported reference) */
+  var LAVA_PAPER=new THREE.Color(0xffffff);
+  var lavaFog=new THREE.Fog(0xffffff,50,220);
+  var lavaSeaSeg=Math.min(window.innerWidth||800, window.innerHeight||600)<500?100:160;
+  var lavaUni={
+    uTime:{value:0},
+    uBlow:{value:new THREE.Vector4(0,0,0,0)},
+    uSunDir:{value:new THREE.Vector3(0.55,0.16,-0.82).normalize()},
+    uPaper:{value:LAVA_PAPER},
+    uFogNear:{value:lavaFog.near},
+    uFogFar:{value:lavaFog.far}
+  };
+  var lavaMat=new THREE.ShaderMaterial({
+    uniforms:lavaUni,
+    vertexShader:[
+      'uniform float uTime;',
+      'varying vec3 vWorldPos;',
+      'varying vec3 vNormal;',
+      'varying float vCrest;',
+      'vec2 hash2(vec2 p){',
+      '  p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3)));',
+      '  return -1.0+2.0*fract(sin(p)*43758.5453123);',
+      '}',
+      'float noise(vec2 p){',
+      '  vec2 i=floor(p),f=fract(p);',
+      '  vec2 u=f*f*(3.0-2.0*f);',
+      '  return mix(mix(dot(hash2(i+vec2(0,0)),f-vec2(0,0)),',
+      '                 dot(hash2(i+vec2(1,0)),f-vec2(1,0)),u.x),',
+      '             mix(dot(hash2(i+vec2(0,1)),f-vec2(0,1)),',
+      '                 dot(hash2(i+vec2(1,1)),f-vec2(1,1)),u.x),u.y);',
+      '}',
+      'float fbm(vec2 p){',
+      '  float v=0.0,a=0.5;',
+      '  mat2 r=mat2(1.6,1.2,-1.2,1.6);',
+      '  for(int i=0;i<4;i++){ v+=a*noise(p); p=r*p; a*=0.5; }',
+      '  return v;',
+      '}',
+      'float height(vec2 p,float t){',
+      '  float h=0.0;',
+      '  h+=1.15*sin(dot(p,vec2(0.055,0.032))+t*0.42);',
+      '  h+=0.80*sin(dot(p,vec2(-0.038,0.071))+t*0.31+1.7);',
+      '  h+=0.45*sin(dot(p,vec2(0.090,-0.060))+t*0.55+4.1);',
+      '  vec2 w=p*0.11+vec2(t*0.06,-t*0.045);',
+      '  h+=0.85*fbm(w+0.6*vec2(fbm(w+t*0.02),fbm(w-t*0.03)));',
+      '  h+=0.10*noise(p*0.9+vec2(t*0.35,t*0.22));',
+      '  return h*0.38;', /* keep swells under the pads */
+      '}',
+      'void main(){',
+      '  vec3 pos=position;',
+      '  float t=uTime;',
+      '  vec2 xz=pos.xz;',
+      '  float h=height(xz,t);',
+      '  pos.y+=h;',
+      '  float e=0.65;',
+      '  float hx=height(xz+vec2(e,0.0),t);',
+      '  float hz=height(xz+vec2(0.0,e),t);',
+      '  vNormal=normalize(vec3(h-hx,e,h-hz));',
+      '  vCrest=smoothstep(0.35,0.85,h);',
+      '  vec4 wp=modelMatrix*vec4(pos,1.0);',
+      '  vWorldPos=wp.xyz;',
+      '  gl_Position=projectionMatrix*viewMatrix*wp;',
+      '}'
+    ].join('\n'),
+    fragmentShader:[
+      'precision highp float;',
+      'uniform vec3 uSunDir;',
+      'uniform vec3 uPaper;',
+      'uniform float uFogNear;',
+      'uniform float uFogFar;',
+      'uniform vec4 uBlow;',
+      'varying vec3 vWorldPos;',
+      'varying vec3 vNormal;',
+      'varying float vCrest;',
+      'void main(){',
+      '  vec3 N=normalize(vNormal);',
+      '  vec3 V=normalize(cameraPosition-vWorldPos);',
+      '  vec3 L=normalize(uSunDir);',
+      '  vec3 H=normalize(L+V);',
+      '  vec3 ink=vec3(0.016,0.015,0.022);',
+      '  float fres=pow(1.0-max(dot(N,V),0.0),5.0);',
+      '  vec3 col=mix(ink,uPaper*0.92,fres*0.82);',
+      '  float glossWide=pow(max(dot(N,H),0.0),24.0);',
+      '  col+=vec3(0.28,0.28,0.30)*glossWide;',
+      '  float glossSharp=pow(max(dot(N,H),0.0),480.0);',
+      '  col+=vec3(1.0)*glossSharp*1.4;',
+      '  col+=uPaper*vCrest*0.05;',
+      '  /* geyser telegraph — red ember under the ring */',
+      '  float bd=distance(vWorldPos.xz,uBlow.xy);',
+      '  float tele=uBlow.w*(1.0-smoothstep(uBlow.z*0.12,uBlow.z,bd));',
+      '  col=mix(col,vec3(0.86,0.22,0.18),tele*0.55);',
+      '  col+=vec3(1.0,0.45,0.3)*tele*glossSharp*0.8;',
+      '  float d=distance(cameraPosition,vWorldPos);',
+      '  float f=smoothstep(uFogNear,uFogFar,d);',
+      '  col=mix(col,uPaper,f);',
+      '  gl_FragColor=vec4(col,1.0);',
+      '}'
+    ].join('\n')
+  });
+  var lavaSeaGeo=new THREE.PlaneGeometry(520,520,lavaSeaSeg,lavaSeaSeg);
+  lavaSeaGeo.rotateX(-Math.PI/2);
+  var lavaPlane=lavaReg(new THREE.Mesh(lavaSeaGeo,lavaMat));
+  lavaPlane.position.y=-1.35; /* ink sits below pad decks */
+  var lavaPlatGeo=new THREE.CylinderGeometry(1,1.06,LAVA.platH,32);
+  var lavaPlats=[];
+  for(var lpi=0;lpi<100;lpi++){
+    var mat=new THREE.MeshToonMaterial({color:0xffffff,gradientMap:gradientMap,emissive:0x000000});
+    var m=lavaReg(new THREE.Mesh(lavaPlatGeo,mat));
+    m.scale.set(1,1,1);
+    m.position.set(0,-LAVA.platH/2,0);
+    var rim=new THREE.Mesh(new THREE.TorusGeometry(0.99,0.055,8,48),
+      new THREE.MeshBasicMaterial({color:INK}));
+    rim.rotation.x=Math.PI/2; rim.position.y=LAVA.platH/2+0.02;
+    m.add(rim);
+    /* contact shade glued to the pad underside */
+    var psh=new THREE.Mesh(new THREE.CircleGeometry(1.08,24),
+      new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.2,depthWrite:false}));
+    psh.rotation.x=-Math.PI/2; psh.position.y=-LAVA.platH/2+0.02;
+    m.add(psh);
+    /* floor drop shadow — sits on the lava plane; deepens with elevation */
+    var dropMat=new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.2,depthWrite:false});
+    var drop=lavaReg(new THREE.Mesh(new THREE.CircleGeometry(1,28), dropMat));
+    drop.rotation.x=-Math.PI/2; drop.position.y=0.04;
+    lavaPlats.push({data:{x:0,z:0,r:1,h:0,permanent:true,group:-1},mesh:m,mat:mat,rim:rim,contact:psh,shadow:drop,shadowMat:dropMat});
+  }
+  lavaSeed=12345;
+  var lavaLevelData=generateLavaLevel();
+  var lavaStartPad=lavaLevelData[0];
+  var lavaExitPad=null;
+  for(var ldi=0;ldi<lavaLevelData.length;ldi++) if(lavaLevelData[ldi].isExit) lavaExitPad=lavaLevelData[ldi];
+  /* circular torus portal — same makePortal() as corridor / nautilus / boss exits */
+  var lavaExitPortal=lavaReg(makePortal(0,0));
+  lavaExitPortal.visible=false;
+  /* route coins + branch rewards */
+  var lavaCoins=[];
+  var lavaDiamonds=[];
+  (function(){
+    var dGeo=new THREE.OctahedronGeometry(0.6);
+    for(var di=0;di<2;di++){
+      var m=lavaReg(new THREE.Mesh(dGeo,new THREE.MeshToonMaterial({color:DIAMOND,gradientMap:gradientMap})));
+      m.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.68),
+        new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+      lavaDiamonds.push({mesh:m,alive:false,x:0,z:0});
+    }
+  })();
+  function placeLavaCoins(){
+    if(!lavaCoins.length) return; /* coinGeo not ready yet */
+    var ci=0;
+    for(var i=0;i<lavaLevelData.length&&ci<lavaCoins.length;i++){
+      var p=lavaLevelData[i];
+      if(p.x>500||p.isExit||p.reward) continue;
+      /* main path every other pad; spur pads all get a coin */
+      if(p.path==='main'&&(i%2===0)) continue;
+      if(p.path==='main'&&i===0) continue;
+      var c=lavaCoins[ci++];
+      c.alive=true; c.x=p.x; c.z=p.z; c.h=p.h||0;
+      c.mesh.position.set(p.x,(p.h||0)+0.75,p.z);
+      c.mesh.visible=true;
+    }
+    for(;ci<lavaCoins.length;ci++){ lavaCoins[ci].alive=false; lavaCoins[ci].mesh.visible=false; }
+  }
+  function placeLavaRewards(){
+    var di=0, i;
+    for(i=0;i<lavaDiamonds.length;i++){
+      lavaDiamonds[i].alive=false; lavaDiamonds[i].mesh.visible=false;
+    }
+    if(heartMesh){
+      heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
+    }
+    for(i=0;i<lavaLevelData.length;i++){
+      var p=lavaLevelData[i];
+      var ph=p.h||0;
+      if(p.reward==='heart'&&heartMesh){
+        heartDrop={x:p.x,z:p.z,t:999,h:ph};
+        heartMesh.position.set(p.x,ph+1.05,p.z);
+        heartMesh.visible=true;
+        heartShadow.visible=true;
+        heartShadow.position.set(p.x+SDX*0.5,ph+0.04,p.z+SDZ*0.5);
+      } else if(p.reward==='diamond'&&di<lavaDiamonds.length){
+        var d=lavaDiamonds[di++];
+        d.alive=true; d.x=p.x; d.z=p.z; d.h=ph;
+        d.mesh.position.set(p.x,ph+1.15,p.z);
+        d.mesh.visible=true;
+      }
+    }
+  }
+  function applyLavaLayout(fresh){
+    lavaLevelData=fresh;
+    lavaStartPad=fresh[0];
+    lavaExitPad=null;
+    var i;
+    for(i=0;i<fresh.length;i++) if(fresh[i].isExit) lavaExitPad=fresh[i];
+    for(i=0;i<lavaPlats.length;i++){
+      var pm=lavaPlats[i];
+      if(i<fresh.length){
+        var p=fresh[i];
+        pm.data=p;
+        pm.mesh.scale.set(p.r,1,p.r);
+        pm.mesh.position.set(p.x,(p.h||0)-LAVA.platH/2,p.z);
+        pm.mesh.rotation.y=lavaRnd()*Math.PI;
+        pm.rim.scale.set(1/p.r,1/p.r,1/p.r);
+        pm.mesh.visible=true;
+        /* floor shadow under the pad (offset with height like other drop shadows) */
+        var ph=p.h||0;
+        var hk=Math.min(1, ph/4.2);
+        pm.shadow.position.set(p.x+SDX*ph*0.22, 0.04, p.z+SDZ*ph*0.22);
+        pm.shadow.scale.setScalar(p.r*(1.05+hk*0.75));
+        pm.shadowMat.opacity=0.18+hk*0.58;
+        pm.shadow.visible=true;
+      } else {
+        pm.data={x:999,z:999,r:0.01,h:0,permanent:true,group:-1};
+        pm.mesh.visible=false;
+        pm.shadow.visible=false;
+      }
+    }
+    lavaExitPortal.position.set(lavaExitPad.x,(lavaExitPad.h||0)+1.7,lavaExitPad.z);
+    placeLavaCoins();
+    placeLavaRewards();
+  }
+  applyLavaLayout(lavaLevelData);
+  /* geyser blowout — ink column + red telegraph */
+  var lavaGeyser=lavaReg(new THREE.Group());
+  var geyserCol=new THREE.Mesh(new THREE.CylinderGeometry(0.5,1.05,1,12,1,true),
+    new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.92,side:THREE.DoubleSide}));
+  geyserCol.geometry.translate(0,0.5,0);
+  var geyserCore=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.5,1,10,1,true),
+    new THREE.MeshBasicMaterial({color:RED,transparent:true,opacity:0.9,side:THREE.DoubleSide}));
+  geyserCore.geometry.translate(0,0.5,0);
+  var geyserInk=new THREE.Mesh(new THREE.CylinderGeometry(0.5*1.12,1.05*1.08,1,12,1,true),
+    new THREE.MeshBasicMaterial({color:0x000000,side:THREE.BackSide,transparent:true,opacity:0.85}));
+  geyserInk.geometry.translate(0,0.5,0);
+  var lavaTeleRing=new THREE.Mesh(new THREE.RingGeometry(0.15,1.05,40),
+    new THREE.MeshBasicMaterial({color:RED,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide}));
+  lavaTeleRing.rotation.x=-Math.PI/2; lavaTeleRing.position.y=-0.45;
+  lavaGeyser.add(geyserInk,geyserCol,geyserCore,lavaTeleRing);
+  var lavaT=0, lavaShotT=2.4, lavaDone=false, lavaAirHigh=false;
+  var lavaBlow={state:'idle',t:3.5,x:0,z:0};
+  function lavaPlatRiseStart(){
+    return 1-LAVA.riseT/(LAVA.cycle-LAVA.activeT-LAVA.warnT);
+  }
+  /* pads are solid while active/warn, and again while rising back into place */
+  function lavaPlatSolid(p,t){
+    if(p.permanent) return true;
+    var st=lavaPlatState(p,t==null?lavaT:t);
+    if(st.state==='active'||st.state==='warn') return true;
+    if(st.state==='gone') return st.k>lavaPlatRiseStart();
+    return false;
+  }
+  function lavaSupportAt(x,z,t){
+    t=t==null?lavaT:t;
+    var padR;
+    for(var i=0;i<lavaPlats.length;i++){
+      var pm=lavaPlats[i], p=pm.data;
+      if(p.x>500) continue;
+      padR=p.r+0.55; /* forgive landing near the rim */
+      var dx=x-p.x, dz=z-p.z;
+      if(dx*dx+dz*dz<=padR*padR && lavaPlatSolid(p,t)) return pm;
+    }
+    return null;
+  }
+  function lavaTerrainH(x,z){
+    var best=-5, found=false;
+    for(var i=0;i<lavaPlats.length;i++){
+      var pm=lavaPlats[i], p=pm.data;
+      if(p.x>500) continue;
+      var padR=p.r+0.55;
+      var dx=x-p.x, dz=z-p.z;
+      if(dx*dx+dz*dz>padR*padR) continue;
+      if(!lavaPlatSolid(p,lavaT)) continue;
+      var y=p.h||0;
+      if(!found||y>best){ best=y; found=true; }
+    }
+    return found?best:-5;
+  }
+  function setLavaVisible(v){
+    for(var i=0;i<lavaMeshes.length;i++) lavaMeshes[i].visible=v;
+    if(v){
+      for(var j=0;j<lavaPlats.length;j++){
+        var pd=lavaPlats[j].data;
+        var on=!!(pd&&pd.r>0.05&&pd.x<500);
+        lavaPlats[j].mesh.visible=on;
+        if(lavaPlats[j].shadow) lavaPlats[j].shadow.visible=on;
+      }
+      lavaExitPortal.visible=true;
+      lavaGeyser.visible=false;
+      for(var c=0;c<lavaCoins.length;c++) lavaCoins[c].mesh.visible=lavaCoins[c].alive;
+      for(var d=0;d<lavaDiamonds.length;d++) lavaDiamonds[d].mesh.visible=lavaDiamonds[d].alive;
+      if(heartDrop){ heartMesh.visible=true; heartShadow.visible=true; }
+    } else {
+      document.body.classList.remove('lava');
+      for(d=0;d<lavaDiamonds.length;d++) lavaDiamonds[d].mesh.visible=false;
+      if(level==='lava'){
+        heartDrop=null;
+        if(heartMesh){ heartMesh.visible=false; heartShadow.visible=false; }
+      }
+    }
+  }
+  function scheduleLavaBlow(){
+    lavaBlow.state='idle';
+    lavaBlow.t=LAVA.blowMin+lavaRnd()*(LAVA.blowMax-LAVA.blowMin);
+  }
+  function pickLavaBlowSpot(){
+    var x,z,tries=0;
+    do{
+      if(lavaRnd()<0.4){
+        x=pos.x+(lavaRnd()*2-1)*2.5; z=pos.z-(2.5+lavaRnd()*3.5);
+      } else {
+        var a=lavaRnd()*Math.PI*2, r=3+lavaRnd()*4.5;
+        x=pos.x+Math.cos(a)*r; z=pos.z+Math.sin(a)*r;
+      }
+      tries++;
+    } while(tries<12&&(Math.hypot(x-lavaStartPad.x,z-lavaStartPad.z)<3||Math.hypot(x-lavaExitPad.x,z-lavaExitPad.z)<3.2));
+    lavaBlow.x=x; lavaBlow.z=z;
+  }
+  function lavaSideVolley(){
+    /* sparse ink shots from the flanks */
+    var n=3+((lavaRnd()*3)|0);
+    var zLo=lavaExitPad.z-2, zHi=3;
+    for(var i=0;i<n;i++){
+      var side=lavaRnd()<0.5?-1:1;
+      var x=side*(9.5+lavaRnd()*2.2);
+      var z=zLo+lavaRnd()*(zHi-zLo);
+      var ang=Math.atan2(pos.z-z, pos.x-x)+(lavaRnd()-0.5)*0.9;
+      var spd=5.2+lavaRnd()*2.8;
+      fireBullet(x,z,Math.cos(ang)*spd,Math.sin(ang)*spd,{r:0.4,aimed:true});
+    }
+  }
+  function respawnLava(){
+    var sh=lavaStartPad.h||0;
+    pos.set(lavaStartPad.x, sh+RADIUS+0.02, lavaStartPad.z);
+    vel.set(0,0,0);
+    grounded=true;
+    lastGroundY=pos.y;
+    lavaAirHigh=false;
+    pounding=false; poundReady=false; coyoteT=0;
+    iframes=Math.max(iframes, 1.6);
+    bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+  }
+  function lavaPitFall(){
+    /* pit dunk: lose a life and restart the crossing — not leave the level */
+    if(iframes>0||lavaDone||state!=='play') return;
+    hearts--; iframes=1.6; everHit=true; combo=0; updateHUD();
+    squashT=0.22; squashAmt=0.45;
+    hitStop=Math.max(hitStop,0.08);
+    shakeT=0.28; shakeX=0; shakeZ=1;
+    thudSfx(); spawnShock(pos.x,pos.z);
+    if(hearts<=0) failToHub();
+    else respawnLava();
+  }
+  function finishLava(){
+    if(lavaDone) return;
+    lavaDone=true;
+    spawnShock(lavaExitPad.x,lavaExitPad.z);
+    boomSfx();
+    toastQueue.push('LAVA CLEAR'); showNextToast();
+    coinScore+=500; updateHUD();
+    document.body.classList.remove('lava');
+    setLavaVisible(false);
+    scene.fog=null; scene.background=WHITE_BG;
+    advanceHubSeq();
+    returnToHub();
+  }
+
   /* corridor coins: pre-placed weave along the pipe walls */
   var corrCoins=[]; /* built after coin geometry is defined, see buildCorrCoins() */
   /* sliders: ink cubes oscillating across the pipe */
@@ -1296,6 +1879,17 @@
     }
     spiralBonusGiven=false;
   }
+  /* lava coins: same gold disc + ink outline as every other level */
+  function buildLavaCoins(){
+    if(!lavaCoins.length){
+      for(var i=0;i<40;i++){
+        var m=new THREE.Mesh(coinGeo,new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
+        m.add(new THREE.Mesh(coinOutGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+        lavaReg(m);
+        lavaCoins.push({mesh:m,alive:false,x:0,z:0});
+      }
+    }
+  }
   /* diamonds: 50 coins each, perched high on the walls */
   var diamonds=[];
   (function(){
@@ -1596,7 +2190,7 @@
   var grounded=true, wasAirborne=false, lastGroundY=RADIUS;
   var hearts=3, iframes=0, elapsed=0, collected=0, best=0;
   var spawnTimer=1.5, pipTimer=1, spiral=null, dropTimer=1.2;
-  var combo=0, coinScore=0, scoreBase=0, pounding=false;
+  var combo=0, coinScore=0, scoreBase=0, pounding=false, poundReady=false, coyoteT=0;
   var boostT=0, boostSpawnTimer=8;
   var hitStop=0, fovPulse=0, shakeT=0, shakeX=0, shakeZ=0;
   var storm=0, stormTimer=30;
@@ -1605,7 +2199,7 @@
   var raygunUnlocked=false, raygunT=0, rayFireCool=0, raygunSpawnTimer=8;
   var major=null, majorDone=false; /* major boss: hub seq step 1 */
   var portalUnlocked=false;        /* hub ramp portal: 30s after each hub arrival */
-  var hubSeq=0;                    /* 0 nautilus, 1 giant, 2 corridor, 3 obsidian */
+  var hubSeq=0;                    /* 0 nautilus, 1 giant, 2 corridor, 3 obsidian, 4 lava */
   var hubTimer=0;                  /* time spent in hub rest this visit */
   var obs=null, obsY=OBS_FLOAT, obsX=0, obsZ=0, inkFill=0, INK_CAP=6, obsDead=false;
   var lastInkT=-99, inkDecayT=0;
@@ -1718,7 +2312,7 @@
   var overBoard=document.getElementById('overBoard');
 
   /* ------------------------- Badge system ------------------------- */
-  /* Profile-persistent: badges save to Firebase + localStorage; never re-earn. */
+  /* Profile-persistent via Firestore only — no localStorage cache. */
   var BADGES=[
     {id:'flight',  g:'FF', name:'FIRST FLIGHT', how:'Launch off a hub ramp into the air.'},
     {id:'skyhigh', g:'SH', name:'SKY HIGH', how:'Reach a height of 9.5 or more outside the Nautilus.'},
@@ -1738,7 +2332,6 @@
   ];
   var BADGE_IDS={};
   for(var bi=0;bi<BADGES.length;bi++) BADGE_IDS[BADGES[bi].id]=BADGES[bi];
-  var BADGE_KEY='roll_player_badges';
   var earned={};
   var toastEl=document.getElementById('toast');
   var hudBadgesEl=document.getElementById('hudBadges');
@@ -1763,9 +2356,6 @@
     var out=[];
     for(var i=0;i<BADGES.length;i++) if(earned[BADGES[i].id]) out.push(BADGES[i].id);
     return out;
-  }
-  function saveLocalBadges(){
-    try{ localStorage.setItem(BADGE_KEY, JSON.stringify(earnedBadgeList())); }catch(e){}
   }
   function rebuildHudBadges(){
     hudBadgesEl.innerHTML='';
@@ -1792,19 +2382,9 @@
         badgeSfx();
       }
     }
-    if(added){
-      rebuildHudBadges();
-      saveLocalBadges();
-    }
-  }
-  function loadLocalBadges(){
-    try{
-      var arr=JSON.parse(localStorage.getItem(BADGE_KEY)||'[]');
-      if(arr&&arr.length) applyBadgeIds(arr, false);
-    }catch(e){}
+    if(added) rebuildHudBadges();
   }
   function persistBadges(){
-    saveLocalBadges();
     if(!fbReady||!db||!fbUser)return;
     if(badgeSyncing){ badgeDirty=true; return; }
     badgeSyncing=true;
@@ -1824,11 +2404,13 @@
         payload={
           name:d.name||playerName||'PLAYER',
           score:Math.max(0, Math.min(999999, d.score|0)),
+          time:Math.max(0, Math.min(999999, d.time!=null?d.time|0:bestTime|0)),
           badges:merged.slice(0,32),
           updatedAt:firebase.firestore.FieldValue.serverTimestamp()
         };
         if(sanitizeName(payload.name).length<2) payload.name='PLAYER';
       } else {
+        if(!hasStartedRun) return null; /* no DB entry until a run begins */
         var v=validateName(playerName);
         if(!v.ok){ return null; }
         var created=[];
@@ -1836,6 +2418,7 @@
         payload={
           name:v.name,
           score:Math.max(0, Math.min(999999, remoteBest|0)),
+          time:Math.max(0, Math.min(999999, bestTime|0)),
           badges:created.slice(0,32),
           updatedAt:firebase.firestore.FieldValue.serverTimestamp()
         };
@@ -1934,7 +2517,7 @@
     var ids=row.badges||[];
     for(var i=0;i<ids.length;i++) if(BADGE_IDS[ids[i]]) profileBadgeMap[ids[i]]=true;
     profileNameEl.textContent=row.name||'PLAYER';
-    profileScoreEl.textContent='SCORE '+padBoard(row.score|0);
+    profileScoreEl.textContent='SCORE '+padBoard(row.score|0)+' \u00B7 TIME '+fmtTime(row.time|0);
     renderBadgeGrid(profileBadgeRowEl, profileBadgeLabelEl, profileBadgeMap, true);
     menuFocusBeforeProfile=menuFocusIdx;
     profileOv.classList.remove('hidden');
@@ -1948,17 +2531,22 @@
     menuFocusIdx=menuFocusBeforeProfile;
     applyMenuFocus();
   }
-  loadLocalBadges();
 
   /* per-run trackers */
   var everHit=false, stormCoins=0, boostsGrabbed=0;
   var reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ============================ Leaderboard ========================== */
-  var NAME_KEY='roll_player_name';
-  var BEST_KEY='roll_player_best';
-  var playerName=sanitizeStoredName(localStorage.getItem(NAME_KEY));
+  /* Player progress lives only in Firestore — wipe the DB and progress is gone. */
+  try{
+    localStorage.removeItem('roll_player_badges');
+    localStorage.removeItem('roll_player_best');
+    localStorage.removeItem('roll_player_name');
+  }catch(e){}
+  var playerName='';
+  var bestTime=0;
   var fbReady=false, fbUser=null, db=null, remoteBest=0;
+  var hasStartedRun=false;
   var boardCache=[];
 
   function sanitizeStoredName(raw){
@@ -1966,23 +2554,14 @@
   }
   function savePlayerName(name){
     playerName=sanitizeStoredName(name);
-    if(playerName.length>=2) localStorage.setItem(NAME_KEY, playerName);
-    else localStorage.removeItem(NAME_KEY);
     return playerName;
   }
-  function loadLocalBest(){
-    var n=parseInt(localStorage.getItem(BEST_KEY)||'0',10);
-    return isFinite(n)&&n>0?n:0;
+  function noteBest(s, t){
+    s=Math.max(0, Math.floor(Number(s)||0));
+    t=Math.max(0, Math.floor(Number(t)||0));
+    if(s>best){ best=s; bestTime=t; }
+    else if(s===best&&t>bestTime) bestTime=t;
   }
-  function saveLocalBest(s){
-    if(s>best){
-      best=s;
-      localStorage.setItem(BEST_KEY, String(best));
-    }
-  }
-
-  best=loadLocalBest();
-  if(playerName) nameField.value=playerName;
 
   function sanitizeName(raw){
     return sanitizeStoredName(raw);
@@ -2029,8 +2608,10 @@
     overBoard.innerHTML='<h2>TOP SCORES</h2><div class="status">'+msg+'</div>';
   }
   function refreshBoards(){
-    renderBoard(startBoard, boardCache);
-    renderBoard(overBoard, boardCache);
+    /* scores stay hidden until the player has actually started a run */
+    var rows=hasStartedRun?boardCache:[];
+    renderBoard(startBoard, rows);
+    renderBoard(overBoard, rows);
     applyMenuFocus();
   }
   function loadLeaderboard(){
@@ -2040,10 +2621,13 @@
         boardCache=[];
         snap.forEach(function(doc){
           var d=doc.data();
+          var sc=d.score|0, tm=d.time!=null?d.time|0:0;
+          if(sc<1&&tm<1) return; /* skip ghost profiles with no run */
           boardCache.push({
             uid:doc.id,
             name:d.name||'???',
-            score:d.score|0,
+            score:sc,
+            time:tm,
             badges:Array.isArray(d.badges)?d.badges.slice():[]
           });
         });
@@ -2054,19 +2638,24 @@
         setBoardStatus('NO SCORES YET');
       });
   }
-  function submitScore(s){
+  function submitScore(s, t){
     if(!fbReady||!db||!fbUser) return Promise.resolve();
     var v=validateName(playerName);
     if(!v.ok) return Promise.resolve();
     var scoreVal=Math.max(0, Math.min(999999, Math.floor(Number(s)||0)));
+    var timeVal=Math.max(0, Math.min(999999, Math.floor(Number(t!=null?t:elapsed)||0)));
     var badges=earnedBadgeList().slice(0,32);
     var ref=db.collection('scores').doc(fbUser.uid);
-    /* read-merge-write so we never violate score-only-grows / badges-only-grow */
+    /* read-merge-write: score/badges only grow; time follows the best score */
     return ref.get().then(function(doc){
       var prev=doc.exists?doc.data():null;
       var prevScore=prev?prev.score|0:0;
+      var prevTime=prev&&prev.time!=null?prev.time|0:0;
       var prevBadges=prev&&Array.isArray(prev.badges)?prev.badges:[];
-      var writeScore=Math.max(scoreVal, prevScore, remoteBest|0);
+      var writeScore=Math.max(scoreVal, prevScore);
+      var writeTime=prevTime;
+      if(scoreVal>prevScore) writeTime=timeVal;
+      else if(scoreVal===prevScore) writeTime=Math.max(prevTime, timeVal);
       var merged={};
       for(var i=0;i<prevBadges.length;i++) merged[prevBadges[i]]=true;
       for(var j=0;j<badges.length;j++) merged[badges[j]]=true;
@@ -2075,11 +2664,13 @@
       return ref.set({
         name:v.name,
         score:writeScore,
+        time:writeTime,
         badges:outBadges,
         updatedAt:firebase.firestore.FieldValue.serverTimestamp()
       }).then(function(){
         remoteBest=writeScore;
-        saveLocalBest(writeScore);
+        best=writeScore;
+        bestTime=writeTime;
       });
     })
       .then(function(){ return loadLeaderboard(); })
@@ -2116,20 +2707,17 @@
           if(doc&&doc.exists){
             var d=doc.data();
             remoteBest=d.score|0;
-            if(remoteBest>best){
-              best=remoteBest;
-              localStorage.setItem(BEST_KEY, String(best));
-            }
+            best=remoteBest;
+            bestTime=d.time!=null?d.time|0:0;
             if(d.name){
-              if(!playerName) savePlayerName(d.name);
-              else if(!localStorage.getItem(NAME_KEY)) savePlayerName(d.name);
+              savePlayerName(d.name);
               nameField.value=playerName;
             }
             if(Array.isArray(d.badges)&&d.badges.length){
               applyBadgeIds(d.badges, false);
             }
             fbReady=true;
-            /* push any local-only badges up to the profile */
+            /* push any session-only badges earned before profile loaded */
             var local=earnedBadgeList();
             var remote=d.badges||[];
             var needSync=false;
@@ -2138,10 +2726,13 @@
             }
             if(needSync) persistBadges();
           } else {
+            /* wiped / new profile — start empty (no local cache to restore) */
+            best=0; bestTime=0; remoteBest=0;
             fbReady=true;
-            if(earnedBadgeList().length) persistBadges();
           }
-          return loadLeaderboard();
+          /* leaderboard stays empty until the player starts a run */
+          refreshBoards();
+          return null;
         })
         .catch(function(err){
           console.warn('firebase', err);
@@ -2186,6 +2777,8 @@
     audioInit();
     enterFullscreen();
     startOv.classList.add('hidden');
+    hasStartedRun=true;
+    loadLeaderboard();
     reset();
     state='play';
     clearMenuFocus();
@@ -2196,6 +2789,7 @@
     closeBadgeInfo();
     enterFullscreen();
     overOv.classList.add('hidden');
+    hasStartedRun=true;
     reset();
     state='play';
     clearMenuFocus();
@@ -2212,10 +2806,8 @@
   function bankDeathScore(){
     var s=score();
     var isNewHigh=s>best;
-    if(isNewHigh){
-      saveLocalBest(s);
-      submitScore(s);
-    }
+    noteBest(s, elapsed);
+    submitScore(s, elapsed);
     return {score:s, isNewHigh:isNewHigh};
   }
   function pad(n){ return n>999?''+n:('00'+n).slice(-3); }
@@ -2239,7 +2831,7 @@
     pos.set(0,RADIUS+5,0); vel.set(0,0,0);
     grounded=false; hearts=3; iframes=0; elapsed=0; collected=0;
     spawnTimer=1.5; pipTimer=0.5; spiral=null; squashT=0;
-    combo=0; coinScore=0; scoreBase=0; pounding=false;
+    combo=0; coinScore=0; scoreBase=0; pounding=false; poundReady=false; coyoteT=0;
     boostT=0; boostSpawnTimer=8;
     everHit=false; stormCoins=0; boostsGrabbed=0;
     boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
@@ -2249,7 +2841,8 @@
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
     major=null; majorDone=false; FIELD_OFF=false;
     bossExitActive=false; bossExitPortal.visible=false;
-    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setFieldVisible(true);
+    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setFieldVisible(true);
+    scene.fog=null; scene.background=WHITE_BG;
     lastGroundY=RADIUS; dropTimer=1.2;
     punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
     stains.forEach(function(st){st.alive=false;st.mesh.visible=false;});
@@ -2300,7 +2893,7 @@
     state='over';
     var s=score();
     var isNewHigh=s>best;
-    saveLocalBest(s);
+    noteBest(s, elapsed);
     if(finalCauseEl){
       if(opts.hubDeath){
         finalCauseEl.textContent='YOU DIED IN THE HUB';
@@ -2323,7 +2916,7 @@
     finalTimeEl.textContent='TIME TIL DEATH \u00B7 '+fmtTime(elapsed);
     renderBadges();
     overOv.classList.remove('hidden');
-    submitScore(s);
+    submitScore(s, elapsed);
     menuFocusIdx=0;
     applyMenuFocus();
   }
@@ -2375,7 +2968,6 @@
   var knob=document.getElementById('knob');
   var input={x:0,y:0};
   var activeId=null, MAX_TRAVEL=40;
-  var flickHist=[];   // {t, x, y} recent knob positions while dragging
 
   function setKnob(dx,dy){
     knob.style.transform='translate(calc(-50% + '+dx+'px), calc(-50% + '+dy+'px))';
@@ -2387,19 +2979,13 @@
     if(d>MAX_TRAVEL){dx*=MAX_TRAVEL/d;dy*=MAX_TRAVEL/d;}
     setKnob(dx,dy);
     input.x=dx/MAX_TRAVEL; input.y=dy/MAX_TRAVEL;
-    var now=performance.now();
-    flickHist.push({t:now,x:input.x,y:input.y});
-    while(flickHist.length&&now-flickHist[0].t>110)flickHist.shift();
-  }
-  function flickStrength(){ /* verified: fast deflect -> >0, steady hold -> 0 */
-    if(flickHist.length<2)return 0;
-    var a=flickHist[0], z=flickHist[flickHist.length-1];
-    var dt=(z.t-a.t)/1000; if(dt<=0)return 0;
-    var v=Math.hypot(z.x-a.x,z.y-a.y)/dt;
-    return v>5?Math.min(v/8,1.4):0;
   }
   function hop(scale){
-    if(grounded&&state==='play'){ vel.y=HOP_VY*(scale||1); grounded=false; }
+    if(state!=='play')return;
+    /* coyote: brief grace after leaving a pad so edge wobble still hops, not slams */
+    if(!(grounded||coyoteT>0))return;
+    vel.y=HOP_VY*(scale||1);
+    grounded=false; coyoteT=0; poundReady=true;
   }
 
   stick.addEventListener('pointerdown',function(e){
@@ -2407,7 +2993,7 @@
     setStickPadHide(false); /* touch stick wins — show on-screen stick again */
     activeId=e.pointerId; stick.classList.add('live');
     stick.setPointerCapture(e.pointerId);
-    flickHist=[]; updateFromPointer(e); e.preventDefault();
+    updateFromPointer(e); e.preventDefault();
   });
   stick.addEventListener('pointermove',function(e){
     if(e.pointerId!==activeId)return;
@@ -2416,19 +3002,19 @@
   function release(e){
     if(e.pointerId!==activeId)return;
     activeId=null; stick.classList.remove('live');
-    var f=flickStrength();
-    if(f>0)hop(Math.max(0.85,f*0.85));
-    flickHist=[];
     input.x=0; input.y=0; setKnob(0,0);
   }
   stick.addEventListener('pointerup',release);
   stick.addEventListener('pointercancel',release);
 
-  /* Tap anywhere to hop; tap midair to ground-pound (stick and overlays excluded) */
+  /* Tap: hop on ground; slam only after a real hop / ramp launch (not edge wobble) */
   function requestHop(){
     if(state!=='play')return;
-    if(grounded)hop(1);
-    else if(!pounding){ pounding=true; vel.y=-38; }
+    /* near the floor (incl. landing bounce) always hops — never slams */
+    if(grounded||coyoteT>0){ hop(1); return; }
+    var clear=pos.y-RADIUS-terrainH(pos.x,pos.z);
+    if(clear<1.0){ coyoteT=0.12; hop(1); return; }
+    if(poundReady&&!pounding){ pounding=true; poundReady=false; vel.y=-38; }
   }
   window.addEventListener('pointerdown',function(e){
     if(state!=='play')return;
@@ -2856,6 +3442,8 @@
     clearThreats();
     setSpiralVisible(false);
     setObsVisible(false);
+    setLavaVisible(false);
+    scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
     exitVoidLook();
@@ -2883,6 +3471,8 @@
     setCorridorVisible(false);
     setSpiralVisible(false);
     setObsVisible(false);
+    setLavaVisible(false);
+    scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
     exitVoidLook();
@@ -2903,7 +3493,7 @@
     spawnShock(0,0); fovPulse=0.3; boomSfx();
   }
   function advanceHubSeq(){
-    hubSeq=(hubSeq+1)%4;
+    hubSeq=(hubSeq+1)%5;
   }
   function enterHubDestination(){
     portalUnlocked=false;
@@ -2911,7 +3501,8 @@
     if(hubSeq===0) enterNautilus();
     else if(hubSeq===1) startMajor();
     else if(hubSeq===2) enterCorridor();
-    else enterObsidian();
+    else if(hubSeq===3) enterObsidian();
+    else enterLava();
   }
   function failToHub(){
     /* died outside hub rest: bank score, bounce home, restart sequence at 0 pts */
@@ -2932,6 +3523,8 @@
     punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
     stains.forEach(function(st){st.alive=false;st.mesh.visible=false;});
     obsBeam.visible=false; obsBeam2.visible=false; obsBeamWarn.visible=false;
+    setLavaVisible(false);
+    scene.fog=null; scene.background=WHITE_BG;
     returnToHub();
     resetRunScore();
     if(banked.isNewHigh){
@@ -2951,11 +3544,42 @@
       spiralExitPortal.visible=true;
     }
   }
+  function enterLava(){
+    level='lava';
+    clearThreats();
+    setCorridorVisible(false);
+    setSpiralVisible(false);
+    setObsVisible(false);
+    setArenaVisible(false);
+    inkMeterEl.style.display='none';
+    ballMat.color.setHex(RED);
+    exitVoidLook();
+    document.body.classList.add('lava');
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
+    lavaSeed=((Math.random()*1e9)|0)>>>0;
+    buildLavaCoins();
+    applyLavaLayout(generateLavaLevel());
+    setLavaVisible(true);
+    scene.fog=lavaFog;
+    scene.background=WHITE_BG;
+    lavaT=0; lavaDone=false; lavaShotT=2.6; lavaAirHigh=false;
+    scheduleLavaBlow();
+    lavaUni.uBlow.value.set(0,0,0,0);
+    respawnLava();
+    iframes=Math.max(iframes, 1.8);
+    toastQueue.push('LAVA PITS'); showNextToast();
+    toastQueue.push('HOP THE PADS \u00B7 SIDE PATHS HIDE REWARDS');
+    spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
   function enterNautilus(){
     level='spiral';
     clearThreats();
     setCorridorVisible(false);
     setObsVisible(false);
+    setLavaVisible(false);
+    scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
     exitVoidLook();
@@ -2996,6 +3620,8 @@
     clearThreats();
     setCorridorVisible(false);
     setSpiralVisible(false);
+    setLavaVisible(false);
+    scene.fog=null; scene.background=WHITE_BG;
     setArenaVisible(false);
     pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
     boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
@@ -3329,8 +3955,12 @@
 
     var wasGr=grounded;
     if(grounded){
-      var g=terrainGrad(pos.x,pos.z);
-      vel.x+=-G*g.x*dt; vel.z+=-G*g.z*dt;         /* slope force */
+      /* lava pads are flat discs — skip terrainGrad or edge samples (0 vs -5)
+         invent huge slopes that fling the ball into the pit */
+      if(level!=='lava'){
+        var g=terrainGrad(pos.x,pos.z);
+        vel.x+=-G*g.x*dt; vel.z+=-G*g.z*dt;         /* slope force */
+      }
       if(level==='spiral'&&pos.y>RADIUS+0.4){     /* helix slope pulls down-path */
         var rr2=pos.x*pos.x+pos.z*pos.z||1;
         var gk=SP_H/SP_THMAX;
@@ -3350,7 +3980,8 @@
 
     /* terrain (verified: only downward velocity reflects, hops survive) */
     var th=terrainH(pos.x,pos.z);
-    if(th-(pos.y-RADIUS)>1.0){ /* walked into a wedge wall: undo + reflect */
+    /* lava pits: don't treat deep lava as a "wedge wall" when stepping off a pad */
+    if(level!=='lava'&&th-(pos.y-RADIUS)>1.0){ /* walked into a wedge wall: undo + reflect */
       pos.x=ppx; pos.z=ppz;
       th=terrainH(pos.x,pos.z);
       var wgr=terrainGrad((ppx+pos.x)/2+vel.x*dt*0.5,(ppz+pos.z)/2+vel.z*dt*0.5);
@@ -3370,22 +4001,27 @@
           if(wasAirborne&&impact>4){squashT=0.2;squashAmt=Math.min(impact*0.035,0.4);}
         }
       }
+      /* any floor contact ends the air-slam window — bounce must still allow re-hop */
+      poundReady=false; coyoteT=0.12;
       grounded=vel.y<=0.01;
       if(grounded){vel.y=0;lastGroundY=pos.y;}
       wasAirborne=false;
     } else {
-      if(wasGr){ /* lip launch: backward-sampled climb, never reads across the cliff */
+      if(wasGr&&level!=='lava'){ /* lip launch: backward-sampled climb, never reads across the cliff */
         var vpm=Math.hypot(vel.x,vel.z);
         if(vpm>0.5){
           var bsx=ppx-vel.x/vpm*0.4, bsz=ppz-vel.z/vpm*0.4;
           var climb=(terrainH(ppx,ppz)-terrainH(bsx,bsz))/0.4*vpm;
           if(climb>1){
             vel.y=Math.min(climb*LAUNCH_MULT,LAUNCH_VY_CAP);
+            poundReady=true;
             if(climb>6)fovPulse=Math.max(fovPulse,0.18);
             awardBadge('flight');
           }
         }
       }
+      if(wasGr) coyoteT=0.12;
+      else if(coyoteT>0) coyoteT=Math.max(0,coyoteT-dt);
       grounded=false; wasAirborne=true;
     }
 
@@ -3404,6 +4040,7 @@
           if(pounding){pounding=false;poundImpact();}
           else if(spImpact>4){squashT=0.2;squashAmt=Math.min(spImpact*0.035,0.4);}
           vel.y=0; grounded=true; lastGroundY=pos.y; wasAirborne=false;
+          poundReady=false; coyoteT=0.12;
           break;
         }
       }
@@ -3432,6 +4069,10 @@
         var ovr=vel.x*onx+vel.z*onz;
         if(ovr>0){vel.x-=(1+REST)*ovr*onx; vel.z-=(1+REST)*ovr*onz;}
       }
+    } else if(level==='lava'){
+      pos.x=Math.max(-15, Math.min(15, pos.x));
+      if(pos.z>6){ pos.z=6; if(vel.z>0) vel.z*=-REST; }
+      if(pos.z<lavaExitPad.z-10){ pos.z=lavaExitPad.z-10; if(vel.z<0) vel.z*=-REST; }
     } else { /* nautilus: square floor bounds */
       if(pos.x> SP_BOUND){pos.x= SP_BOUND; if(vel.x>0)vel.x=-vel.x*REST;}
       if(pos.x<-SP_BOUND){pos.x=-SP_BOUND; if(vel.x<0)vel.x=-vel.x*REST;}
@@ -3485,7 +4126,7 @@
         corridorThreat();
         spawnTimer=Math.max(storm>0?0.18:0.22,(0.7-elapsed*0.005)/(storm>0?1.6:1));
       }
-    } else {
+    } else if(level==='arena'){
       spawnTimer-=dt;
       if(spawnTimer<=0){
         scheduleThreat();
@@ -3537,6 +4178,8 @@
          every corridor bullet at spawn (they spawn 45 units up-corridor) */
       var oob = level==='arena'
         ? Math.hypot(b.x,b.z)>(FIELD_OFF?BOSS_ARENA:ARENA)+1.5
+        : level==='lava'
+        ? (Math.abs(b.x)>16||b.z>10||b.z<lavaExitPad.z-14)
         : (b.z<CORR_END-6||b.z>CORR_START+2||Math.abs(b.x)>CORR_XMAX+2);
       var maxAge=b.maxAge!=null?b.maxAge:9;
       if(b.age>maxAge||oob){b.alive=false;b.mesh.visible=false;continue;}
@@ -3548,7 +4191,9 @@
       }
       if(!b.alive)continue;
       var by;
-      if(level==='arena'){
+      if(level==='lava'){
+        by=Math.max(hitR, pos.y); /* track player height across elevated pads */
+      } else if(level==='arena'){
         if(!FIELD_OFF&&terrainH(b.x,b.z)>0.6){b.alive=false;b.mesh.visible=false;continue;} /* absorbed by ramps */
         by=hitR;
       } else {
@@ -3907,7 +4552,7 @@
         awardBadge('heart');
         heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
       }
-    } else if(!major&&level!=='spiral'&&hearts===1&&heartCool<=0&&Math.random()<dt*0.2){
+    } else if(!major&&level!=='spiral'&&level!=='lava'&&hearts===1&&heartCool<=0&&Math.random()<dt*0.2){
       var hha, hhr;
       if(level==='corridor'){
         hha=Math.random()*Math.PI*2;
@@ -3939,6 +4584,7 @@
         hubTimer+=dt;
         if(!portalUnlocked&&hubTimer>=30){
           portalUnlocked=true;
+          setHubPortalColor(hubSeq);
           spawnShock(hubPortal.position.x,hubPortal.position.z);
           toastQueue.push('PORTAL OPEN'); showNextToast();
           boomSfx(); fovPulse=0.25;
@@ -3948,6 +4594,7 @@
       hubPortal.visible=portalUnlocked&&isHubRest();
       hubPortalShadow.visible=portalUnlocked&&isHubRest();
       if(portalUnlocked&&isHubRest()){
+        setHubPortalColor(hubSeq);
         hubPortal.rotation.y+=1.4*dt;
         hubPortal.scale.setScalar(1.25*(1+Math.sin(elapsed*2.5)*0.06));
       }
@@ -4271,6 +4918,158 @@
           advanceHubSeq();
           returnToHub();
         }
+      }
+    } else if(level==='lava'){
+      lavaT+=dt;
+      lavaUni.uTime.value=reducedMotion?lavaT*0.08:lavaT;
+      lavaUni.uFogNear.value=lavaFog.near;
+      lavaUni.uFogFar.value=lavaFog.far;
+      lavaPlane.position.x=pos.x; lavaPlane.position.z=pos.z;
+
+      /* cycling platforms — flicker before they drop; y includes pad elevation */
+      for(var lpi=0;lpi<lavaPlats.length;lpi++){
+        var pm=lavaPlats[lpi], p=pm.data;
+        if(p.x>500) continue;
+        var st=lavaPlatState(p,lavaT);
+        var base=(p.h||0)-LAVA.platH/2;
+        var y=base, vis=true, emis=p.permanent?0.18:0.02;
+        if(!p.permanent){
+          if(st.state==='warn'){
+            /* speed up blink as disappear approaches */
+            var rate=7+st.k*16;
+            vis=Math.sin(lavaT*rate*Math.PI*2)>0;
+            emis=0.05;
+          } else if(st.state==='gone'){
+            var riseStart=lavaPlatRiseStart();
+            if(st.k>riseStart){
+              var rk=(st.k-riseStart)/(1-riseStart);
+              y=base-(1-rk)*1.5; emis=0.3*rk; vis=true;
+            } else { vis=false; y=base-3; }
+          } else if(st.state==='active'&&st.k<0.1){
+            emis=0.35*(1-st.k/0.1);
+          }
+        }
+        pm.mat.color.setHex(0xffffff);
+        pm.rim.material.color.setHex(INK);
+        pm.mesh.visible=vis;
+        pm.mesh.position.y=y;
+        if(pm.mat.emissive) pm.mat.emissive.setRGB(emis*0.4,emis*0.15,emis*0.12);
+        /* deep floor shadow sells elevation; hide with the pad */
+        if(pm.shadow){
+          var ph=p.h||0;
+          var hk=Math.min(1, ph/4.2);
+          pm.shadow.visible=vis;
+          pm.shadow.position.set(p.x+SDX*ph*0.22, 0.04, p.z+SDZ*ph*0.22);
+          pm.shadow.scale.setScalar(p.r*(1.05+hk*0.75));
+          pm.shadowMat.opacity=vis?(0.18+hk*0.58):0;
+        }
+      }
+
+      /* side-edge ink volleys (sparse) */
+      lavaShotT-=dt;
+      if(lavaShotT<=0){
+        lavaSideVolley();
+        lavaShotT=2.4+lavaRnd()*1.6;
+      }
+
+      /* blowout geyser */
+      var B=lavaBlow;
+      B.t-=dt;
+      if(B.state==='idle'&&B.t<=0){
+        B.state='tele'; B.t=LAVA.blowTele; pickLavaBlowSpot();
+        lavaGeyser.visible=true; lavaGeyser.position.set(B.x,0,B.z);
+        geyserCol.scale.set(1,0.001,1); geyserCore.scale.set(1,0.001,1); geyserInk.scale.set(1,0.001,1);
+      } else if(B.state==='tele'){
+        var tk=1-B.t/LAVA.blowTele;
+        lavaUni.uBlow.value.set(B.x,B.z,LAVA.blowR*1.5,tk);
+        lavaTeleRing.material.opacity=0.35+0.5*Math.abs(Math.sin(lavaT*12));
+        lavaTeleRing.scale.setScalar(LAVA.blowR*(0.55+0.5*tk));
+        if(B.t<=0){
+          B.state='erupt'; B.t=LAVA.blowErupt;
+          boomSfx(); shakeT=Math.max(shakeT,0.3);
+        }
+      } else if(B.state==='erupt'){
+        var ek=1-B.t/LAVA.blowErupt;
+        var h=ek<0.3?(ek/0.3):(1-Math.max(0,(ek-0.65)/0.35));
+        var H=6.2*Math.max(0.001,h);
+        geyserCol.scale.set(1+0.12*Math.sin(lavaT*28),H,1+0.12*Math.cos(lavaT*24));
+        geyserCore.scale.set(1,H*1.05,1);
+        geyserInk.scale.set(geyserCol.scale.x,H,geyserCol.scale.z);
+        lavaTeleRing.material.opacity=0.55*(1-ek);
+        lavaUni.uBlow.value.set(B.x,B.z,LAVA.blowR*1.5,1-ek);
+        if(iframes<=0&&h>0.3){
+          if(Math.hypot(pos.x-B.x,pos.z-B.z)<LAVA.blowR&&pos.y<H+0.5){
+            takeHit(B.x,B.z); /* stay on course — only pit falls reset to start */
+          }
+        }
+        if(B.t<=0){
+          lavaGeyser.visible=false;
+          lavaUni.uBlow.value.w=0;
+          scheduleLavaBlow();
+        }
+      }
+
+      /* hop land juice */
+      var lavaTh=lavaTerrainH(pos.x,pos.z);
+      if(pos.y>(lavaTh>-4?lavaTh:0)+RADIUS+1.15) lavaAirHigh=true;
+      if(lavaAirHigh&&grounded){
+        lavaAirHigh=false;
+        spawnShock(pos.x,pos.z);
+      }
+
+      /* fall into lava — only when not supported by a pad */
+      if(lavaTh>-4){
+        if(pos.y<lavaTh+RADIUS-0.35){
+          pos.y=lavaTh+RADIUS; vel.y=Math.max(0,vel.y); grounded=true; lastGroundY=pos.y;
+        }
+      } else if(pos.y<RADIUS-0.15){
+        lavaPitFall();
+      }
+
+      /* route coins — same gold discs + ink outline as hub / climb / nautilus */
+      for(var lci=0;lci<lavaCoins.length;lci++){
+        var lc=lavaCoins[lci];
+        if(!lc.alive)continue;
+        lc.mesh.rotation.y+=4*dt;
+        lc.mesh.position.y=(lc.h||0)+0.75+Math.sin(elapsed*3+lci)*0.08;
+        if(Math.hypot(pos.x-lc.x,pos.z-lc.z)<RADIUS+0.7&&Math.abs(pos.y-lc.mesh.position.y)<1.6){
+          lc.alive=false; lc.mesh.visible=false;
+          collected++; combo++;
+          coinScore+=5*Math.min(combo,12);
+          coinBlip(); updateHUD();
+          flyCoin(lc.x,lc.mesh.position.y,lc.z);
+        }
+      }
+
+      /* branch diamond — same 50-coin fountain as the climb */
+      for(var ldi=0;ldi<lavaDiamonds.length;ldi++){
+        var ld=lavaDiamonds[ldi];
+        if(!ld.alive)continue;
+        ld.mesh.rotation.y+=2.2*dt;
+        ld.mesh.rotation.x+=1.1*dt;
+        ld.mesh.position.y=(ld.h||0)+1.15+Math.sin(elapsed*2.5+ldi)*0.08;
+        if(Math.hypot(pos.x-ld.x,pos.z-ld.z)<RADIUS+0.9&&Math.abs(pos.y-ld.mesh.position.y)<1.8){
+          ld.alive=false; ld.mesh.visible=false;
+          coinScore+=250;
+          var ldx0=ld.x, ldz0=ld.z, ldy0=ld.mesh.position.y;
+          for(var ldf=0;ldf<10;ldf++)(function(k){
+            setTimeout(function(){
+              if(state!=='play')return;
+              combo++;
+              flyCoin(ldx0+(Math.random()-0.5)*2,ldy0,ldz0+(Math.random()-0.5)*2,5);
+              coinBlip(); updateHUD();
+            },k*70);
+          })(ldf);
+          fovPulse=0.25; badgeSfx();
+        }
+      }
+
+      /* exit portal */
+      lavaExitPortal.rotation.y+=1.4*dt;
+      lavaExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+      if(!lavaDone&&Math.hypot(pos.x-lavaExitPortal.position.x,pos.z-lavaExitPortal.position.z)<2
+         &&Math.abs(pos.y-lavaExitPortal.position.y)<2.5){
+        finishLava();
       }
     } else if(level==='spiral'){
       spiralExitPortal.rotation.y+=1.4*dt;

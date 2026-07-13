@@ -12,20 +12,24 @@ service cloud.firestore {
         && request.auth.uid == uid
         && isValidScore(request.resource.data)
         && request.resource.data.score >= resource.data.score
-        && badgesOnlyGrow();
+        && badgesOnlyGrow()
+        && timeOk();
 
       allow delete: if false;
     }
   }
 
   function isValidScore(data) {
-    return data.keys().hasOnly(['name', 'score', 'updatedAt', 'badges'])
+    return data.keys().hasOnly(['name', 'score', 'time', 'updatedAt', 'badges'])
       && data.name is string
       && data.name.size() >= 2
       && data.name.size() <= 12
       && data.score is int
       && data.score >= 0
       && data.score <= 999999
+      && data.time is int
+      && data.time >= 0
+      && data.time <= 999999
       && data.updatedAt == request.time
       && data.badges is list
       && data.badges.size() <= 32;
@@ -34,5 +38,12 @@ service cloud.firestore {
   function badgesOnlyGrow() {
     return !('badges' in resource.data)
       || request.resource.data.badges.hasAll(resource.data.badges);
+  }
+
+  /* New high score may rewrite time; otherwise time only stays or grows. */
+  function timeOk() {
+    return request.resource.data.score > resource.data.score
+      || !('time' in resource.data)
+      || request.resource.data.time >= resource.data.time;
   }
 }
