@@ -2631,10 +2631,8 @@
     overBoard.innerHTML='<h2>TOP SCORES</h2><div class="status">'+msg+'</div>';
   }
   function refreshBoards(){
-    /* scores stay hidden until the player has actually started a run */
-    var rows=hasStartedRun?boardCache:[];
-    renderBoard(startBoard, rows);
-    renderBoard(overBoard, rows);
+    renderBoard(startBoard, boardCache);
+    renderBoard(overBoard, boardCache);
     applyMenuFocus();
   }
   function loadLeaderboard(){
@@ -2643,9 +2641,10 @@
       .then(function(snap){
         boardCache=[];
         snap.forEach(function(doc){
-          var d=doc.data();
-          var sc=d.score|0, tm=d.time!=null?d.time|0:0;
-          if(sc<1&&tm<1) return; /* skip ghost profiles with no run */
+          var d=doc.data()||{};
+          var sc=Math.floor(Number(d.score)||0)|0;
+          var tm=d.time!=null?Math.floor(Number(d.time)||0)|0:0;
+          if(sc<1) return; /* skip ghost profiles with no real score */
           boardCache.push({
             uid:doc.id,
             name:d.name||'???',
@@ -2658,7 +2657,31 @@
       })
       .catch(function(err){
         console.warn('leaderboard', err);
-        setBoardStatus('NO SCORES YET');
+        /* Fallback: unordered read if score index/type query fails */
+        return db.collection('scores').limit(25).get()
+          .then(function(snap){
+            boardCache=[];
+            snap.forEach(function(doc){
+              var d=doc.data()||{};
+              var sc=Math.floor(Number(d.score)||0)|0;
+              var tm=d.time!=null?Math.floor(Number(d.time)||0)|0:0;
+              if(sc<1) return;
+              boardCache.push({
+                uid:doc.id,
+                name:d.name||'???',
+                score:sc,
+                time:tm,
+                badges:Array.isArray(d.badges)?d.badges.slice():[]
+              });
+            });
+            boardCache.sort(function(a,b){ return b.score-a.score||b.time-a.time; });
+            boardCache=boardCache.slice(0,10);
+            refreshBoards();
+          })
+          .catch(function(err2){
+            console.warn('leaderboard fallback', err2);
+            setBoardStatus('NO SCORES YET');
+          });
       });
   }
   function flushPendingSubmit(){
@@ -2771,9 +2794,7 @@
             fbReady=true;
           }
           flushPendingSubmit();
-          /* leaderboard stays empty until the player starts a run */
-          refreshBoards();
-          return null;
+          return loadLeaderboard();
         })
         .catch(function(err){
           console.warn('firebase', err);
