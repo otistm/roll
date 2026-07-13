@@ -311,7 +311,7 @@
 <div id="stick"><div id="knob"></div></div>
 <div id="storm"><span>INK STORM</span></div>
 <div id="bossHud">
-  <div id="bossHudLabels"><span>THE INKWELL</span><span id="bossPhase">I · SEEP</span></div>
+  <div id="bossHudLabels"><span id="bossTitle">THE INKWELL</span><span id="bossPhase">I · SEEP</span></div>
   <div id="bossHpTrack">
     <div id="bossHpFill"></div>
     <div class="bossTick" style="left:33.333%"></div>
@@ -377,6 +377,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="procedural-snake.js"></script>
 <script>
 (function(){
   'use strict';
@@ -386,7 +387,7 @@
      hop maxRise 2.25, beam-clear 0.63s, bullet-dodge 0.60s, mound-top safe */
   var G=30, RADIUS=1, ACCEL=54, FRICTION=3.6, MAX_SPEED=15, REST=0.35; /* MAX_SPEED == ACCEL/FRICTION: no air/ground mismatch */
   var BLUE=0x18a0e8, BOOST_MULT=1.6, BOOST_TIME=4; /* speed pad: 1.6x for 4s, keeps clamp==terminal */
-  var RAY=0x50ffd2, RAYGUN_TIME=10; /* unlocked after defeating the giant: auto-blasts projectiles */
+  var RAY=0x50ffd2, RAYGUN_TIME=10; /* unlocked after Inkwell: dual-stream seal shots */
   var ARENA=26, BOSS_ARENA=34, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=280;
   var INK=0x111111, RED=0xe8262a, GOLD=0xf2b705, WARN=0xbbbbbb;
   var SHADE=0x9a9a9a, SDX=0.848, SDZ=-0.53; /* drop-shadow color + direction (opposite key light) */
@@ -394,8 +395,10 @@
   var obsMeshes=[];         /* THE OBSIDIAN boss room meshes (declared early) */
   var OBS_R=22;             /* boss room radius */
   var OBS_FLOAT=14, OBS_GROUND=3.2; /* float + slam heights (needed at mesh build time) */
-  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss, 'lava' pits */
+  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss, 'lava' pits, 'viper' feast */
   var lavaMeshes=[];        /* LAVA PITS meshes */
+  var viperMeshes=[];       /* VIPER'S FEAST boss room */
+  var VIPER_BOUND=30;       /* half-extent of square feast arena */
   var PIPE_K=0.032, PIPE_HW=10, CORR_XMAX=12.5, CORR_START=6, CORR_END=-130;
   var DIAMOND=0xbfeef8;
   /* THE NAUTILUS: conical spiral path to the ceiling */
@@ -432,6 +435,7 @@
     if(FIELD_OFF)return 0;
     if(level==='spiral')return 0; /* helix is one-way support, not terrain */
     if(level==='obsidian')return 0;
+    if(level==='viper')return 0;
     if(level==='lava') return lavaTerrainH(x,z);
     if(level==='corridor'){ /* half-pipe: parabolic valley, steep outer walls */
       var d=Math.abs(x);
@@ -705,7 +709,7 @@
     return new THREE.ShapeGeometry(sh);
   }
   /* seq: nautilus, inkwell, corridor, obsidian, lava — always a circle, color marks the route */
-  var HUB_PORTAL_COLORS=[BLUE, INK, GOLD, DIAMOND, RED];
+  var HUB_PORTAL_COLORS=[BLUE, INK, GOLD, DIAMOND, RED, INK];
   var hubPortalGeos={
     circle:makePortalTubeGeo('circle')
   };
@@ -745,6 +749,96 @@
   bossExitPortal.visible=false;
   scene.add(bossExitPortal);
   var bossExitActive=false;
+
+  /* ============================ VIPER'S FEAST ============================ */
+  /* Viper room: exact procedural-snake port + feast game logic layered on top */
+  var VIPER_TIME=60;
+  var VIPER_HIT_R=1.55;
+  var VIPER_EAT_R=2.9; /* head reach vs gold prey orbs */
+  /* Match procedural-snake scaleMin/Max ratio (0.13→0.65), then enlarge */
+  var VIPER_SCALE_K=2.85;
+  var VIPER_GROUND_Y=0.65*VIPER_SCALE_K*0.55; /* spine lift ≈ mid-body radius */
+  var VIPER_MARGIN=3.4;
+  var viper=null;
+  var viperFoods=[];
+  function viperReg(m){ m.visible=false; scene.add(m); viperMeshes.push(m); return m; }
+  (function(){
+    var side=VIPER_BOUND*2;
+    var floor=viperReg(new THREE.Mesh(new THREE.PlaneGeometry(side,side),
+      new THREE.MeshToonMaterial({color:0xffffff,gradientMap:gradientMap})));
+    floor.rotation.x=-Math.PI/2;
+    /* thin square ink frame (no hub-style circular rim) */
+    var frameMat=new THREE.MeshBasicMaterial({color:INK});
+    var t=0.18, h=0.12, L=side;
+    [[0,-VIPER_BOUND,L,t],[0,VIPER_BOUND,L,t],[-VIPER_BOUND,0,t,L],[VIPER_BOUND,0,t,L]].forEach(function(r){
+      var wall=viperReg(new THREE.Mesh(new THREE.BoxGeometry(r[2],h,r[3]),frameMat));
+      wall.position.set(r[0],h/2,r[1]);
+    });
+  })();
+  /* Exact procedural-snake port (see procedural-snake.js) */
+  var VIPER_COUNT=5;
+  var viperProcs=[];
+  function makeViperProc(hx,hz,ang){
+    var dir=new THREE.Vector3(Math.cos(ang),0,Math.sin(ang));
+    var bodyLen=22;
+    /* head should sit at (hx,hz); endless curve grows forward from the tail */
+    var lim=VIPER_BOUND-VIPER_MARGIN;
+    var sx=hx-dir.x*bodyLen, sz=hz-dir.z*bodyLen;
+    sx=Math.max(-lim,Math.min(lim,sx));
+    sz=Math.max(-lim,Math.min(lim,sz));
+    var snk=new ProceduralSnake({
+      length:bodyLen,
+      speed:5.5,
+      spineSegments:120,
+      radialSegments:8,
+      texturePoints:128,
+      orbitRadius:1.15, /* small — must reach prey to eat (large orbit never intersects food) */
+      /* exact port thickness profile, uniformly enlarged */
+      scaleMin:0.13*VIPER_SCALE_K,
+      scaleMax:0.65*VIPER_SCALE_K,
+      groundY:VIPER_GROUND_Y,
+      maxHeight:2.2,
+      boundHalf:VIPER_BOUND,
+      boundMargin:VIPER_MARGIN,
+      coilAmplitude:0.55,
+      tiltStrength:0.04,
+      wanderWeight:0.18,
+      startPoint:new THREE.Vector3(sx,VIPER_GROUND_Y,sz),
+      startDir:dir,
+      /* Roll ink toon: flat ink, soft charcoal spots, low gloss */
+      baseColor:INK,
+      spotColor:0x2c2c2c,
+      spotIntensity:0.35,
+      spotThreshold:0.72,
+      spotScale:4.0,
+      specularPower:8.0,
+      specularIntensity:0.08,
+      fresnelPower:2.0,
+      fresnelIntensity:0.06,
+      anisotropicStrength:0.0,
+      normalPerturbStrength:0.02,
+      bellyLightness:0.35,
+      bellyWidth:0.55
+    });
+    snk.group.visible=false;
+    scene.add(snk.group);
+    viperMeshes.push(snk.group);
+    viperProcs.push(snk);
+    return snk;
+  }
+
+  var viperFoodGeo=new THREE.SphereGeometry(0.55,16,12);
+  for(var vfi=0;vfi<20;vfi++){
+    var vfm=viperReg(new THREE.Mesh(viperFoodGeo,
+      new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap})));
+    var vfo=new THREE.Mesh(viperFoodGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide}));
+    vfo.scale.setScalar(1.08); vfm.add(vfo);
+    var vfr=new THREE.Mesh(new THREE.TorusGeometry(0.72,0.07,8,20),
+      new THREE.MeshBasicMaterial({color:RED}));
+    vfr.rotation.x=Math.PI/2; vfm.add(vfr);
+    viperFoods.push({mesh:vfm,alive:false,x:0,z:0,phase:Math.random()*6});
+  }
+  var viperExitPortal=viperReg(makePortal(0,0,INK));
 
   /* ============================ LAVA PITS ============================ */
   var LAVA={
@@ -2033,34 +2127,27 @@
     }
   }
 
-  /* Raygun bolts: cyan beams that auto-seek and erase ink projectiles */
-  var rayBolts=[], _boltDir=new THREE.Vector3(), _boltAxis=new THREE.Vector3(1,0,0);
-  var boltGeo=new THREE.BoxGeometry(0.85,0.12,0.12);
-  for(var rbi=0;rbi<24;rbi++){
+  /* Raygun shots: same dual-stream seal projectiles as Inkwell auto-fire (cyan) */
+  var rayBolts=[];
+  var boltGeo=new THREE.BoxGeometry(0.22,0.22,0.75);
+  for(var rbi=0;rbi<48;rbi++){
     var rbm=new THREE.Mesh(boltGeo,new THREE.MeshBasicMaterial({color:RAY}));
     rbm.visible=false; scene.add(rbm);
-    var glow=new THREE.Mesh(new THREE.SphereGeometry(0.28,8,6),
-      new THREE.MeshBasicMaterial({color:0xd4fff5,transparent:true,opacity:0.4}));
-    rbm.add(glow);
-    rayBolts.push({mesh:rbm,alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0});
+    rayBolts.push({mesh:rbm,alive:false,x:0,y:0,z:0,vx:0,vz:0,age:0});
   }
-  function fireRayBolt(tx,ty,tz){
+  function fireRayShot(x,z,vx,vz){
     for(var i=0;i<rayBolts.length;i++){
       var b=rayBolts[i];
       if(b.alive)continue;
-      var ox=pos.x, oy=pos.y, oz=pos.z;
-      var dx=tx-ox, dy=ty-oy, dz=tz-oz, d=Math.sqrt(dx*dx+dy*dy+dz*dz)||1;
-      var sp=28;
-      b.alive=true; b.life=0.85;
-      b.x=ox+dx/d*1.4; b.y=oy+dy/d*1.4; b.z=oz+dz/d*1.4;
-      b.vx=dx/d*sp; b.vy=dy/d*sp; b.vz=dz/d*sp;
+      b.alive=true; b.age=0;
+      b.x=x; b.z=z; b.y=Math.max(0.55, pos.y*0.35);
+      b.vx=vx; b.vz=vz;
       b.mesh.visible=true;
-      b.mesh.position.set(b.x,b.y,b.z);
-      _boltDir.set(dx/d,dy/d,dz/d);
-      b.mesh.quaternion.setFromUnitVectors(_boltAxis, _boltDir);
-      return true;
+      b.mesh.position.set(x,b.y,z);
+      b.mesh.rotation.y=Math.atan2(vx,vz);
+      return b;
     }
-    return false;
+    return null;
   }
   function raySfx(){ tone(880,0.05,'sawtooth',0.04,1400); tone(1320,0.04,'square',0.025); }
 
@@ -2207,7 +2294,7 @@
   var major=null, majorDone=false; /* major boss: hub seq step 1 */
   var portalUnlocked=false;        /* hub ramp portal: HUB_PORTAL_WAIT after each hub arrival */
   var HUB_PORTAL_WAIT=30;
-  var hubSeq=0;                    /* 0 nautilus, 1 giant, 2 corridor, 3 obsidian, 4 lava */
+  var hubSeq=0;                    /* 0 nautilus, 1 giant, 2 corridor, 3 obsidian, 4 lava, 5 viper */
   var hubTimer=0;                  /* time spent in hub rest this visit */
   var obs=null, obsY=OBS_FLOAT, obsX=0, obsZ=0, inkFill=0, INK_CAP=6, obsDead=false;
   var lastInkT=-99, inkDecayT=0;
@@ -2310,6 +2397,8 @@
   var bossHudEl=document.getElementById('bossHud');
   var bossHpFillEl=document.getElementById('bossHpFill');
   var bossPhaseEl=document.getElementById('bossPhase');
+  var bossTitleEl=document.getElementById('bossTitle');
+  var bossTicks=document.querySelectorAll('.bossTick');
   var hubPortalHudEl=document.getElementById('hubPortalHud');
   function hideHubPortalHud(){
     if(hubPortalHudEl) hubPortalHudEl.classList.remove('on');
@@ -2343,7 +2432,7 @@
     {id:'combo12', g:'CX', name:'MAX COMBO', how:'Reach a coin combo of x12 in one run.'},
     {id:'boss',    g:'BB', name:'BOSS BREAKER', how:'Pop a corridor ink boss with ground pounds.'},
     {id:'giant',   g:'GS', name:'GIANT SLAYER', how:'Defeat the giant in the boss room.'},
-    {id:'survive', g:'SV', name:'SURVIVOR', how:'Outlast the giant\'s 60 second clock.'},
+    {id:'survive', g:'SV', name:'SURVIVOR', how:'Outlast the giant\'s 120 second clock.'},
     {id:'stormer', g:'SC', name:'STORM CHASER', how:'Collect 5 coins during a single Ink Storm.'},
     {id:'clean60', g:'UT', name:'UNTOUCHABLE', how:'Survive 60 seconds without taking a hit.'},
     {id:'s100',    g:'C',  name:'CENTURION', how:'Reach a score of 100 in one run.'},
@@ -2908,9 +2997,9 @@
     hitStop=0; fovPulse=0; shakeT=0;
     storm=0; stormTimer=30; stormEl.classList.remove('on');
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
-    major=null; majorDone=false; FIELD_OFF=false;
+    major=null; majorDone=false; viper=null; FIELD_OFF=false;
     bossExitActive=false; bossExitPortal.visible=false;
-    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setFieldVisible(true);
+    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setViperVisible(false); setFieldVisible(true);
     scene.fog=null; scene.background=WHITE_BG;
     lastGroundY=RADIUS; dropTimer=1.2;
     punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
@@ -3416,8 +3505,8 @@
         /* Victory is locked in — leftover hits must not wipe the run */
         hearts=3; iframes=2;
         exitBossRoom();
-      } else if(major&&major.dying>0){
-        hearts=1; iframes=2; /* dissolve is already a win; keep the score */
+      } else if(viper&&(viper.dying>0||viper.done)){
+        hearts=1; iframes=2; /* implode / portal is already a win */
       } else failToHub();
     }
   }
@@ -3489,6 +3578,18 @@
       }
     }
     if(major&&Math.hypot(pos.x-major.x,pos.z-major.z)<7)majorHitByPound();
+    if(level==='viper'&&viper&&!viper.done&&viper.dying===0){
+      for(var vpi=0;vpi<viperFoods.length;vpi++){
+        var vf=viperFoods[vpi];
+        if(!vf.alive)continue;
+        if(Math.hypot(pos.x-vf.x,pos.z-vf.z)<5){
+          vf.alive=false; vf.mesh.visible=false;
+          spawnShock(vf.x,vf.z);
+          combo++; coinScore+=8*Math.min(combo,12);
+          flyCoin(vf.x,1.2,vf.z); coinBlip(); updateHUD();
+        }
+      }
+    }
   }
 
   /* ------------------- level transitions ------------------- */
@@ -3519,6 +3620,7 @@
     setSpiralVisible(false);
     setObsVisible(false);
     setLavaVisible(false);
+    setViperVisible(false);
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -3548,17 +3650,21 @@
     setSpiralVisible(false);
     setObsVisible(false);
     setLavaVisible(false);
+    setViperVisible(false);
+    clearViperLive();
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
     exitVoidLook();
     FIELD_OFF=false;
-    major=null; majorDone=false;
+    major=null; majorDone=false; viper=null;
     bossExitActive=false; bossExitPortal.visible=false;
     majorMesh.visible=false; majorShadow.visible=false;
     clearMajorRing();
     if(bossHudEl) bossHudEl.classList.remove('on');
     if(bossBannerEl){ bossBannerEl.style.opacity='0'; bossBannerT=0; }
+    if(bossTitleEl) bossTitleEl.textContent='THE INKWELL';
+    for(var bti=0;bti<bossTicks.length;bti++) bossTicks[bti].style.display='';
     setArenaVisible(true);
     pos.set(0,RADIUS+4,0); vel.set(0,0,0); grounded=false;
     lastGroundY=RADIUS;
@@ -3570,7 +3676,7 @@
     spawnShock(0,0); fovPulse=0.3; boomSfx();
   }
   function advanceHubSeq(){
-    hubSeq=(hubSeq+1)%5;
+    hubSeq=(hubSeq+1)%6;
   }
   function enterHubDestination(){
     portalUnlocked=false;
@@ -3580,7 +3686,8 @@
     else if(hubSeq===1) startMajor();
     else if(hubSeq===2) enterCorridor();
     else if(hubSeq===3) enterObsidian();
-    else enterLava();
+    else if(hubSeq===4) enterLava();
+    else enterViper();
   }
   function failToHub(){
     /* died outside hub rest: bank score, bounce home, restart sequence at 0 pts */
@@ -3602,6 +3709,9 @@
     stains.forEach(function(st){st.alive=false;st.mesh.visible=false;});
     obsBeam.visible=false; obsBeam2.visible=false; obsBeamWarn.visible=false;
     setLavaVisible(false);
+    setViperVisible(false);
+    clearViperLive();
+    viper=null;
     scene.fog=null; scene.background=WHITE_BG;
     returnToHub();
     resetRunScore();
@@ -3628,6 +3738,7 @@
     setCorridorVisible(false);
     setSpiralVisible(false);
     setObsVisible(false);
+    setViperVisible(false);
     setArenaVisible(false);
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -3657,6 +3768,7 @@
     setCorridorVisible(false);
     setObsVisible(false);
     setLavaVisible(false);
+    setViperVisible(false);
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -3699,6 +3811,7 @@
     setCorridorVisible(false);
     setSpiralVisible(false);
     setLavaVisible(false);
+    setViperVisible(false);
     scene.fog=null; scene.background=WHITE_BG;
     setArenaVisible(false);
     pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
@@ -3719,6 +3832,363 @@
     toastQueue.push('DODGE THE DUST'); showNextToast();
     toastQueue.push('POUND IT WHEN IT LOWERS');
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
+
+  /* ---- VIPER'S FEAST: starve three ink snakes for 60s ---- */
+  function setViperVisible(v){
+    if(!v){
+      for(var i=0;i<viperMeshes.length;i++) viperMeshes[i].visible=false;
+      for(var p=0;p<viperProcs.length;p++) viperProcs[p].setVisible(false);
+      return;
+    }
+    for(var j=0;j<viperMeshes.length;j++){
+      var mesh=viperMeshes[j];
+      var skip=false;
+      if(mesh===viperExitPortal) skip=true;
+      for(var pp=0;pp<viperProcs.length&&!skip;pp++){
+        if(mesh===viperProcs[pp].group) skip=true;
+      }
+      if(!skip) mesh.visible=true;
+    }
+  }
+  function clearViperLive(){
+    for(var i=0;i<viperFoods.length;i++){
+      viperFoods[i].alive=false; viperFoods[i].mesh.visible=false;
+    }
+    for(var p=0;p<viperProcs.length;p++){
+      scene.remove(viperProcs[p].group);
+      var gi=viperMeshes.indexOf(viperProcs[p].group);
+      if(gi>=0) viperMeshes.splice(gi,1);
+      viperProcs[p].dispose();
+    }
+    viperProcs=[];
+  }
+  /* prey zones across the square — keeps the infestation fanning out */
+  var VIPER_FOOD_ZONES=[
+    {x:-18,z:-18},{x:0,z:-18},{x:18,z:-18},
+    {x:-18,z:0},{x:0,z:0},{x:18,z:0},
+    {x:-18,z:18},{x:0,z:18},{x:18,z:18}
+  ];
+  function viperFoodInZone(zi){
+    var z=VIPER_FOOD_ZONES[zi], c=0;
+    for(var i=0;i<viperFoods.length;i++){
+      var f=viperFoods[i];
+      if(f.alive&&Math.hypot(f.x-z.x,f.z-z.z)<12) c++;
+    }
+    return c;
+  }
+  function spawnViperFood(forceZone){
+    var tries=10;
+    while(tries--){
+      var zi=forceZone;
+      if(zi==null){
+        zi=0; var least=1e9;
+        for(var z=0;z<VIPER_FOOD_ZONES.length;z++){
+          var c=viperFoodInZone(z);
+          if(c<least){ least=c; zi=z; }
+        }
+        if(Math.random()<0.25) zi=(zi+(1+(Math.random()*2)|0))%VIPER_FOOD_ZONES.length;
+      }
+      var zone=VIPER_FOOD_ZONES[zi];
+      var fx=zone.x+(Math.random()*2-1)*9;
+      var fz=zone.z+(Math.random()*2-1)*9;
+      var lim=VIPER_BOUND-5;
+      fx=Math.max(-lim,Math.min(lim,fx));
+      fz=Math.max(-lim,Math.min(lim,fz));
+      if(Math.hypot(fx-pos.x,fz-pos.z)<4) continue;
+      var crowded=false;
+      for(var oi=0;oi<viperFoods.length;oi++){
+        var of=viperFoods[oi];
+        if(of.alive&&Math.hypot(fx-of.x,fz-of.z)<8){ crowded=true; break; }
+      }
+      if(crowded) continue;
+      if(viper&&viper.snakes){
+        for(var s=0;s<viper.snakes.length;s++){
+          if(Math.hypot(fx-viper.snakes[s].hx,fz-viper.snakes[s].hz)<4){ crowded=true; break; }
+        }
+      }
+      if(crowded) continue;
+      for(var i=0;i<viperFoods.length;i++){
+        var f=viperFoods[i];
+        if(f.alive) continue;
+        f.alive=true; f.x=fx; f.z=fz; f.phase=Math.random()*6; f.claimed=-1;
+        f.mesh.visible=true;
+        f.mesh.position.set(fx,0.85,fz);
+        f.mesh.scale.setScalar(1);
+        return f;
+      }
+      break;
+    }
+    return null;
+  }
+  function assignViperPrey(){
+    if(!viper||!viper.snakes) return;
+    for(var i=0;i<viperFoods.length;i++) viperFoods[i].claimed=-1;
+    for(var s=0;s<viper.snakes.length;s++) viper.snakes[s].prey=null;
+    var n=viper.snakes.length;
+    var rot=(viper.claimRot|0)%n;
+    viper.claimRot=rot+1;
+    for(var k=0;k<n;k++){
+      var si=(rot+k)%n;
+      var sn=viper.snakes[si];
+      var best=null, bestD=1e9;
+      for(var fi=0;fi<viperFoods.length;fi++){
+        var food=viperFoods[fi];
+        if(!food.alive||food.claimed>=0) continue;
+        var fd=Math.hypot(food.x-sn.hx,food.z-sn.hz);
+        if(fd<bestD){ bestD=fd; best=food; }
+      }
+      if(best){
+        best.claimed=si;
+        sn.prey=best;
+      } else if(!sn.roamT||sn.roamT<=0){
+        var rz=VIPER_FOOD_ZONES[(si*3+((Math.random()*3)|0))%VIPER_FOOD_ZONES.length];
+        sn.roamX=rz.x+(Math.random()*2-1)*6;
+        sn.roamZ=rz.z+(Math.random()*2-1)*6;
+        sn.roamT=1.8+Math.random()*1.4;
+      }
+    }
+  }
+  function growViperSnake(sn){
+    if(!viper||viper.dying>0||viper.done) return;
+    sn.proc.grow(1.2);
+    spawnShock(sn.hx,sn.hz);
+    thudSfx();
+  }
+  function updateViperHud(){
+    if(!viper||viper.done){ bossHudEl.classList.remove('on'); return; }
+    bossHudEl.classList.add('on');
+    if(bossTitleEl) bossTitleEl.textContent="VIPER'S FEAST";
+    for(var i=0;i<bossTicks.length;i++) bossTicks[i].style.display='none';
+    var left=Math.max(0,viper.t);
+    bossHpFillEl.style.width=(left/VIPER_TIME*100)+'%';
+    bossPhaseEl.textContent=Math.ceil(left)+'s';
+  }
+  function startViperDeath(){
+    if(!viper||viper.dying>0||viper.done) return;
+    viper.dying=0.001;
+    bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+    for(var i=0;i<viperFoods.length;i++){
+      viperFoods[i].alive=false; viperFoods[i].mesh.visible=false;
+    }
+    iframes=Math.max(iframes,3);
+    shakeT=Math.max(shakeT,0.4);
+    boomSfx();
+    sayBossBanner('FEAST OVER');
+  }
+  function finishViper(){
+    if(!viper) return;
+    var kx=0, kz=0, n=viper.snakes.length||1;
+    for(var i=0;i<viper.snakes.length;i++){ kx+=viper.snakes[i].hx; kz+=viper.snakes[i].hz; }
+    kx/=n; kz/=n;
+    clearViperLive();
+    bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
+    coinScore+=1500; updateHUD();
+    toastQueue.push('+1500'); showNextToast();
+    toastQueue.push('PORTAL OPEN');
+    viper.done=true; viper.dying=0;
+    bossHudEl.classList.remove('on');
+    bossBannerEl.style.opacity='0';
+    if(bossTitleEl) bossTitleEl.textContent='THE INKWELL';
+    for(var j=0;j<bossTicks.length;j++) bossTicks[j].style.display='';
+    viperExitPortal.position.set(kx,1.7,kz);
+    viperExitPortal.visible=true;
+    spawnShock(kx,kz); fovPulse=0.25; boomSfx();
+    iframes=Math.max(iframes,2);
+  }
+  function makeViperSnakeState(hx,hz,ang,shotDelay){
+    var proc=makeViperProc(hx,hz,ang);
+    proc.setVisible(true);
+    /* sync to actual head after curve seed (may differ slightly from request) */
+    hx=proc.head.x; hz=proc.head.z;
+    var tLim=VIPER_BOUND-VIPER_MARGIN-1;
+    var tx=Math.max(-tLim,Math.min(tLim, hx+Math.cos(ang)*10));
+    var tz=Math.max(-tLim,Math.min(tLim, hz+Math.sin(ang)*10));
+    proc.setTarget(tx, VIPER_GROUND_Y, tz);
+    return {
+      hx:hx, hz:hz, ang:ang,
+      proc:proc,
+      shotT:shotDelay,
+      prey:null, roamT:0, roamX:hx, roamZ:hz
+    };
+  }
+  function enterViper(){
+    level='viper';
+    clearThreats();
+    setCorridorVisible(false);
+    setSpiralVisible(false);
+    setObsVisible(false);
+    setLavaVisible(false);
+    hideHubPortalHud();
+    hubPortal.visible=false; hubPortalShadow.visible=false;
+    scene.fog=null; scene.background=WHITE_BG;
+    inkMeterEl.style.display='none';
+    ballMat.color.setHex(RED);
+    exitVoidLook();
+    setArenaVisible(false);
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
+    heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
+    clearViperLive();
+    setViperVisible(true);
+    /* player enters from south (z≈18) — keep snakes on the far half */
+    viper={
+      t:VIPER_TIME, dying:0, done:false, foodT:0.35, claimRot:0,
+      snakes:[
+        makeViperSnakeState(0,-18,Math.PI*0.5,1.0),
+        makeViperSnakeState(-18,-14,0.35,1.5),
+        makeViperSnakeState(18,-14,Math.PI-0.35,2.0),
+        makeViperSnakeState(-18,6,0.15,2.4),
+        makeViperSnakeState(18,6,Math.PI-0.15,2.8)
+      ]
+    };
+    for(var z=0;z<VIPER_FOOD_ZONES.length;z++) spawnViperFood(z);
+    pos.set(0,RADIUS,18); vel.set(0,0,0); grounded=true;
+    iframes=Math.max(iframes,2.5);
+    sayBossBanner("VIPER'S FEAST");
+    updateViperHud();
+    toastQueue.push('POUND THE PREY'); showNextToast();
+    spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
+  function stepViperSnake(sn, dt){
+    /* target like the repo's mouse ball — prey / roam point */
+    var best=sn.prey&&sn.prey.alive?sn.prey:null;
+    var tx, tz;
+    if(best){
+      tx=best.x; tz=best.z;
+      /* drive into the orb — no wide orbit while hunting */
+      sn.proc.curveOptions.orbitRadius=0.55;
+    } else {
+      if(sn.roamT>0) sn.roamT-=dt;
+      if(!sn.roamT||sn.roamT<=0){
+        var rz=VIPER_FOOD_ZONES[((Math.random()*VIPER_FOOD_ZONES.length)|0)];
+        sn.roamX=rz.x+(Math.random()*2-1)*7;
+        sn.roamZ=rz.z+(Math.random()*2-1)*7;
+        sn.roamT=1.6+Math.random()*1.6;
+      }
+      tx=sn.roamX; tz=sn.roamZ;
+      sn.proc.curveOptions.orbitRadius=2.2;
+    }
+    /* keep seek targets inside the playable square */
+    var tLim=VIPER_BOUND-VIPER_MARGIN-1;
+    tx=Math.max(-tLim,Math.min(tLim,tx));
+    tz=Math.max(-tLim,Math.min(tLim,tz));
+    sn.proc.setTarget(tx, VIPER_GROUND_Y, tz);
+    sn.proc.update(dt, camera);
+    sn.hx=sn.proc.head.x;
+    sn.hz=sn.proc.head.z;
+    sn.ang=Math.atan2(sn.proc.headTan.z, sn.proc.headTan.x);
+
+    for(var ei=0;ei<viperFoods.length;ei++){
+      var ef=viperFoods[ei];
+      if(!ef.alive) continue;
+      /* head + near-jaw samples so a grazing pass still counts */
+      var eaten=Math.hypot(ef.x-sn.hx,ef.z-sn.hz)<VIPER_EAT_R;
+      if(!eaten){
+        for(var ju=0;ju<4&&!eaten;ju++){
+          var jaw=sn.proc.sampleBody(1-ju*0.02);
+          if(Math.hypot(ef.x-jaw.position.x,ef.z-jaw.position.z)<VIPER_EAT_R*0.9) eaten=true;
+        }
+      }
+      if(eaten){
+        ef.alive=false; ef.mesh.visible=false; ef.claimed=-1;
+        if(sn.prey===ef) sn.prey=null;
+        growViperSnake(sn);
+      }
+    }
+
+    sn.shotT-=dt;
+    if(sn.shotT<=0){
+      var aim=Math.atan2(pos.z-sn.hz, pos.x-sn.hx);
+      for(var vs=-1;vs<=1;vs++){
+        var sa=aim+vs*0.18;
+        fireBullet(sn.hx,sn.hz,Math.cos(sa)*9.5,Math.sin(sa)*9.5,{r:0.4,aimed:true,kind:'drop'});
+      }
+      var edge=(Math.random()*4)|0, bx, bz;
+      if(edge===0){ bx=-VIPER_BOUND*0.95; bz=(Math.random()*2-1)*VIPER_BOUND*0.9; }
+      else if(edge===1){ bx=VIPER_BOUND*0.95; bz=(Math.random()*2-1)*VIPER_BOUND*0.9; }
+      else if(edge===2){ bz=-VIPER_BOUND*0.95; bx=(Math.random()*2-1)*VIPER_BOUND*0.9; }
+      else { bz=VIPER_BOUND*0.95; bx=(Math.random()*2-1)*VIPER_BOUND*0.9; }
+      var inward=Math.atan2(pos.z-bz, pos.x-bx)+(Math.random()-0.5)*0.2;
+      fireBullet(bx,bz,Math.cos(inward)*(7+Math.random()*3),Math.sin(inward)*(7+Math.random()*3),{r:0.36});
+      sn.shotT=1.1+Math.random()*0.5;
+    }
+
+    if(iframes<=0){
+      for(var hi=0;hi<24;hi++){
+        var u=hi/23; /* 0=tail … 1=head (repo spineU) */
+        var basis=sn.proc.sampleBody(u);
+        var hr=0.2+0.45*u;
+        if(Math.hypot(pos.x-basis.position.x,pos.z-basis.position.z)<RADIUS+hr
+           && Math.abs(pos.y-basis.position.y)<hr+RADIUS){
+          takeHit(basis.position.x, basis.position.z);
+          break;
+        }
+      }
+    }
+  }
+
+  function stepViper(dt){
+    if(!viper) return;
+    if(bossBannerT>0){
+      bossBannerT-=dt;
+      bossBannerEl.style.opacity=String(Math.min(1,bossBannerT/0.35));
+      if(bossBannerT<=0) bossBannerEl.style.opacity='0';
+    }
+    if(viper.done){
+      viperExitPortal.rotation.y+=1.4*dt;
+      viperExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+      if(state==='play'
+         &&Math.hypot(pos.x-viperExitPortal.position.x,pos.z-viperExitPortal.position.z)<2
+         &&Math.abs(pos.y-viperExitPortal.position.y)<1.8){
+        advanceHubSeq();
+        returnToHub();
+      }
+      return;
+    }
+    updateViperHud();
+    if(viper.dying>0){
+      viper.dying+=dt;
+      var k=Math.max(0,1-viper.dying/2.3);
+      if(Math.floor(viper.dying*10)%2===0 && Math.floor((viper.dying-dt)*10)%2!==0){
+        var sh=viper.snakes[(Math.random()*viper.snakes.length)|0];
+        spawnShock(sh.hx+(Math.random()-0.5)*2, sh.hz+(Math.random()-0.5)*2);
+        shakeT=Math.max(shakeT,0.1);
+      }
+      for(var di=0;di<viper.snakes.length;di++){
+        viper.snakes[di].proc.setScale(k);
+        viper.snakes[di].proc.group.position.set(
+          viper.snakes[di].hx*(1-k)*0.15,
+          0,
+          viper.snakes[di].hz*(1-k)*0.15
+        );
+      }
+      if(viper.dying>=2.3) finishViper();
+      return;
+    }
+
+    viper.t-=dt;
+    if(viper.t<=0){ startViperDeath(); return; }
+
+    assignViperPrey();
+    for(var si=0;si<viper.snakes.length;si++){
+      stepViperSnake(viper.snakes[si], dt);
+    }
+
+    var aliveFood=0;
+    for(var bi=0;bi<viperFoods.length;bi++){
+      var bf=viperFoods[bi];
+      if(!bf.alive) continue;
+      aliveFood++;
+      bf.mesh.rotation.y+=2.2*dt;
+      bf.mesh.position.y=0.75+Math.sin(elapsed*3.2+bf.phase)*0.12;
+    }
+    viper.foodT-=dt;
+    if(viper.foodT<=0){
+      if(aliveFood<VIPER_FOOD_ZONES.length) spawnViperFood();
+      viper.foodT=0.7+Math.random()*0.5;
+    }
   }
   function exitCorridor(){
     advanceHubSeq();
@@ -3785,6 +4255,8 @@
   function updateBossHud(){
     if(!major){ bossHudEl.classList.remove('on'); return; }
     bossHudEl.classList.add('on');
+    if(bossTitleEl) bossTitleEl.textContent='THE INKWELL';
+    for(var i=0;i<bossTicks.length;i++) bossTicks[i].style.display='';
     bossHpFillEl.style.width=(Math.max(0,major.hp)/major.hpMax*100)+'%';
     bossPhaseEl.textContent=['','I · SEEP','II · SURGE','III · DELUGE'][major.phase]||'';
   }
@@ -4154,6 +4626,12 @@
         var ovr=vel.x*onx+vel.z*onz;
         if(ovr>0){vel.x-=(1+REST)*ovr*onx; vel.z-=(1+REST)*ovr*onz;}
       }
+    } else if(level==='viper'){
+      var vb=VIPER_BOUND-RADIUS;
+      if(pos.x> vb){pos.x= vb; if(vel.x>0)vel.x=-vel.x*REST;}
+      if(pos.x<-vb){pos.x=-vb; if(vel.x<0)vel.x=-vel.x*REST;}
+      if(pos.z> vb){pos.z= vb; if(vel.z>0)vel.z=-vel.z*REST;}
+      if(pos.z<-vb){pos.z=-vb; if(vel.z<0)vel.z=-vel.z*REST;}
     } else if(level==='lava'){
       pos.x=Math.max(-15, Math.min(15, pos.x));
       if(pos.z>6){ pos.z=6; if(vel.z>0) vel.z*=-REST; }
@@ -4264,6 +4742,10 @@
         ? Math.hypot(b.x,b.z)>(FIELD_OFF?BOSS_ARENA:ARENA)+1.5
         : level==='lava'
         ? (Math.abs(b.x)>16||b.z>10||b.z<lavaExitPad.z-14)
+        : level==='viper'
+        ? (Math.abs(b.x)>VIPER_BOUND+1.5||Math.abs(b.z)>VIPER_BOUND+1.5)
+        : level==='obsidian'
+        ? Math.hypot(b.x,b.z)>OBS_R+1.5
         : (b.z<CORR_END-6||b.z>CORR_START+2||Math.abs(b.x)>CORR_XMAX+2);
       var maxAge=b.maxAge!=null?b.maxAge:9;
       if(b.age>maxAge||oob){b.alive=false;b.mesh.visible=false;continue;}
@@ -4279,6 +4761,8 @@
         by=Math.max(hitR, pos.y); /* track player height across elevated pads */
       } else if(level==='arena'){
         if(!FIELD_OFF&&terrainH(b.x,b.z)>0.6){b.alive=false;b.mesh.visible=false;continue;} /* absorbed by ramps */
+        by=hitR;
+      } else if(level==='viper'||level==='obsidian'||level==='spiral'){
         by=hitR;
       } else {
         by=hitR; /* corridor bullets fly flat in the channel */
@@ -4401,7 +4885,7 @@
       }
     }
 
-    /* active raygun: auto-aim nearest projectile and blast it */
+    /* active raygun: dual-stream seal shots (same cadence/feel as Inkwell auto-fire) */
     if(raygunT>0){
       raygunT-=dt;
       if(raygunT<=0){
@@ -4409,41 +4893,49 @@
       } else {
         rayFireCool-=dt;
         if(rayFireCool<=0){
-          var bestB=null, bestD=22;
+          var bestB=null, bestD=28;
           for(var rj=0;rj<bullets.length;rj++){
             var rb=bullets[rj];
             if(!rb.alive)continue;
             var rd=Math.hypot(pos.x-rb.x,pos.z-rb.z);
             if(rd<bestD){bestD=rd; bestB=rb;}
           }
-          if(bestB){
-            var byAim=level==='arena'?BULLET_R:BULLET_R;
-            if(fireRayBolt(bestB.x, byAim, bestB.z)){
-              rayFireCool=0.14; /* ~7 shots/sec, matches reference feel */
-              raySfx();
-            }
+          var aimX, aimZ;
+          if(bestB){ aimX=bestB.x; aimZ=bestB.z; }
+          else if(boss){ aimX=boss.x; aimZ=boss.z; }
+          else {
+            var vxz=Math.hypot(vel.x,vel.z);
+            if(vxz>0.5){ aimX=pos.x+vel.x; aimZ=pos.z+vel.z; }
+            else { aimX=pos.x; aimZ=pos.z-1; } /* corridor default: up-pipe */
           }
+          var aim=Math.atan2(aimZ-pos.z, aimX-pos.x);
+          var spd=44;
+          var ox=Math.cos(aim+Math.PI/2)*0.55;
+          var oz=Math.sin(aim+Math.PI/2)*0.55;
+          var fx=Math.cos(aim)*spd, fz=Math.sin(aim)*spd;
+          fireRayShot(pos.x-ox, pos.z-oz, fx, fz);
+          fireRayShot(pos.x+ox, pos.z+oz, fx, fz);
+          rayFireCool=7/60; /* every 7 frames @ 60fps — matches majorAutoFire */
+          raySfx();
         }
       }
     }
-    /* ray bolts: fly + erase bullets on contact */
+    /* ray shots: straight seal projectiles that erase ink bullets on contact */
     for(i=0;i<rayBolts.length;i++){
       var bolt=rayBolts[i];
       if(!bolt.alive)continue;
-      bolt.x+=bolt.vx*dt; bolt.y+=bolt.vy*dt; bolt.z+=bolt.vz*dt;
-      bolt.life-=dt;
+      bolt.x+=bolt.vx*dt; bolt.z+=bolt.vz*dt; bolt.age+=dt;
       bolt.mesh.position.set(bolt.x,bolt.y,bolt.z);
       var hit=false;
       for(var bj=0;bj<bullets.length;bj++){
         var bb=bullets[bj];
         if(!bb.alive)continue;
-        var bby=level==='arena'?BULLET_R:BULLET_R;
-        if(Math.hypot(bolt.x-bb.x,bolt.z-bb.z)<0.7&&Math.abs(bolt.y-bby)<0.9){
+        if(Math.hypot(bolt.x-bb.x,bolt.z-bb.z)<0.75){
           bb.alive=false; bb.mesh.visible=false;
           hit=true; break;
         }
       }
-      if(hit||bolt.life<=0||Math.hypot(bolt.x-pos.x,bolt.z-pos.z)>40){
+      if(hit||bolt.age>2.2||Math.hypot(bolt.x-pos.x,bolt.z-pos.z)>45){
         bolt.alive=false; bolt.mesh.visible=false;
       }
     }
@@ -4569,6 +5061,8 @@
         takeHit(major.x,major.z);
         }
       }
+    } else if(level==='viper'&&viper){
+      stepViper(dt);
     } else if(bossHudEl.classList.contains('on')){
       bossHudEl.classList.remove('on');
     }
@@ -4636,7 +5130,7 @@
         awardBadge('heart');
         heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
       }
-    } else if(!major&&level!=='spiral'&&level!=='lava'&&hearts===1&&heartCool<=0&&Math.random()<dt*0.2){
+    } else if(!major&&level!=='spiral'&&level!=='lava'&&level!=='viper'&&hearts===1&&heartCool<=0&&Math.random()<dt*0.2){
       var hha, hhr;
       if(level==='corridor'){
         hha=Math.random()*Math.PI*2;
