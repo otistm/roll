@@ -2864,8 +2864,10 @@
     return Math.max(0, Math.floor(elapsed)+coinScore-scoreBase);
   }
   function resetRunScore(){
-    /* Death outside the hub: bank already submitted — zero the live run */
-    scoreBase=Math.floor(elapsed)+coinScore;
+    /* Death outside the hub: bank already submitted — zero the live run.
+       Anchor scoreBase to elapsed only (not coins), so survival time
+       counts up again immediately instead of waiting out old coin debt. */
+    scoreBase=Math.floor(elapsed);
     coinScore=0;
     combo=0;
     updateHUD();
