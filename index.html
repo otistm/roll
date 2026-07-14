@@ -1382,8 +1382,7 @@
     pos.set(st.x+sdx/sd*MAZE_CELL*1.35, RADIUS, st.z+sdz/sd*MAZE_CELL*1.35);
     vel.set(0,0,0); grounded=true;
     iframes=Math.max(iframes,1.2);
-    sayBossBanner('GATE MAZE');
-    toastQueue.push('PAY THE GATES'); showNextToast();
+    toastQueue.push('TOLLBEARER\'S MAZE'); showNextToast();
     updateMazeCollapseHud();
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
   }
