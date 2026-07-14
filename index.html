@@ -112,6 +112,31 @@
   }
   #stick.live #knob { transition:none; }
 
+
+  /* THE CIRCUIT race HUD */
+  #countdown { position:fixed; left:50%; top:44%; transform:translate(-50%,-50%);
+    font-size:110px; font-weight:800; letter-spacing:0.04em; color:#111;
+    z-index:14; pointer-events:none; opacity:0; }
+  #countdown.pop { animation:cdPop 0.85s cubic-bezier(.2,1.4,.4,1); }
+  @keyframes cdPop {
+    0% { opacity:0; transform:translate(-50%,-50%) scale(2.2); }
+    18% { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    75% { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    100% { opacity:0; transform:translate(-50%,-50%) scale(0.85); }
+  }
+  #countdown.go { color:#e8262a; font-size:96px; letter-spacing:0.1em; }
+  #minimap { position:fixed; right:10px; top:calc(env(safe-area-inset-top) + 44px);
+    width:78px; height:118px; z-index:6; display:none;
+    background:rgba(255,255,255,0.82); border:1.5px solid #111; border-radius:8px; }
+  #hitWhy { position:fixed; left:50%; top:58%; transform:translateX(-50%);
+    font-size:11px; font-weight:700; letter-spacing:0.26em; text-indent:0.26em;
+    color:#e8262a; z-index:14; opacity:0; pointer-events:none;
+    transition:opacity 0.18s; }
+  #hitWhy.show { opacity:1; }
+  #placeHud { position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 46px);
+    transform:translateX(-50%); font-size:12px; font-weight:700; letter-spacing:0.3em;
+    text-indent:0.3em; color:#111; z-index:6; display:none; }
+
   /* Badge toast: slides in under the HUD when earned */
   #toast {
     position:fixed; top:calc(env(safe-area-inset-top,0px) + 58px); left:50%;
@@ -157,24 +182,31 @@
 
   #stick.padHide { display:none; }
 
-  /* Raygun unlock overlay (shown when the giant falls) */
+  /* Power unlock overlay (raygun / magnet) */
   #raygunOverlay { background:rgba(255,255,255,0.96); z-index:20; gap:22px; }
-  #raygunUnlockIcon { width:56px; height:56px; border-radius:6px; background:#50ffd2;
-    border:2px solid #111; box-shadow:inset -12px 0 0 #18a0a8;
-    animation:shieldIn 0.45s cubic-bezier(.3,1.8,.4,1); }
+  #raygunUnlockIcon {
+    width:64px; height:64px; border:none; background:transparent; box-shadow:none;
+    display:flex; align-items:center; justify-content:center;
+    font-size:52px; line-height:1;
+    animation:shieldIn 0.45s cubic-bezier(.3,1.8,.4,1);
+  }
   #raygunLabel { font-size:13px; font-weight:600; letter-spacing:0.42em;
     text-indent:0.42em; }
 
-  /* Raygun HUD pip + flying pickup */
-  #raySlot { display:none; align-items:center; }
-  #raySlot.got { display:flex; animation:shieldIn 0.35s cubic-bezier(.3,1.8,.4,1); }
-  .rayIcon { width:14px; height:14px; border-radius:2px; background:#50ffd2;
-    border:1.5px solid #111; box-shadow:inset -3px 0 0 #18a0a8; }
+  /* Power HUD pips + flying pickup */
+  #raySlot, #magnetSlot { display:none; align-items:center; }
+  #raySlot.got, #magnetSlot.got { display:flex; animation:shieldIn 0.35s cubic-bezier(.3,1.8,.4,1); }
+  .rayIcon, .magnetIcon {
+    width:18px; height:18px; border:none; background:transparent; box-shadow:none;
+    display:flex; align-items:center; justify-content:center;
+    font-size:16px; line-height:1;
+  }
   .rayFly { position:fixed; z-index:30; pointer-events:none;
-    width:22px; height:22px; border-radius:3px; background:#50ffd2;
-    border:1.5px solid #111; box-shadow:inset -5px 0 0 #18a0a8;
+    width:22px; height:22px; border:none; background:transparent; box-shadow:none;
+    display:flex; align-items:center; justify-content:center;
+    font-size:20px; line-height:1;
     transition:left 0.6s cubic-bezier(.4,-0.2,.6,1), top 0.6s cubic-bezier(.3,.8,.4,1),
-               width 0.6s ease, height 0.6s ease; }
+               width 0.6s ease, height 0.6s ease, font-size 0.6s ease; }
 
 
   #inkMeter { position:fixed; width:46px; height:9px; border:1.5px solid #111;
@@ -193,7 +225,6 @@
   body.void .coinIcon { border-color:#dfe9ff; }
   body.void #inkMeter { border-color:#dfe9ff; background:rgba(255,255,255,0.12); }
   body.void #inkFill { background:#dfe9ff; }
-  body.void #raySlot .rayIcon { border-color:#dfe9ff; }
 
   .overlay {
     position:fixed; inset:0; z-index:10;
@@ -304,7 +335,8 @@
     <div id="hudBadges"></div>
   </div>
   <div id="coins"><div class="coinIcon"></div><span id="coinCount">&times; 00</span></div>
-  <div id="raySlot"><div class="rayIcon"></div></div>
+  <div id="raySlot"><div class="rayIcon">&#x1F52B;</div></div>
+  <div id="magnetSlot"><div class="magnetIcon">&#x1F9F2;</div></div>
   <div id="hearts"><div class="heart"></div><div class="heart"></div><div class="heart"></div></div>
 </div>
 
@@ -321,10 +353,14 @@
 <div id="hubPortalHud">PORTAL OPENS IN 30</div>
 <div id="bossBanner"></div>
 <div id="inkMeter"><div id="inkFill"></div></div>
+<div id="countdown"></div>
+<div id="placeHud">P1 / 4</div>
+<canvas id="minimap" width="78" height="118"></canvas>
+<div id="hitWhy"></div>
 <div id="toast"></div>
 
 <div id="raygunOverlay" class="overlay hidden">
-  <div id="raygunUnlockIcon"></div>
+  <div id="raygunUnlockIcon">&#x1F52B;</div>
   <div id="raygunLabel">RAYGUN UNLOCKED</div>
 </div>
 
@@ -346,7 +382,7 @@
   <div id="finalHigh" class="hidden"></div>
   <div id="finalScore">SCORE 000 &middot; BEST 000</div>
   <div id="finalTime">TIME TIL DEATH &middot; 0:00</div>
-  <div id="badgeLabel">BADGES 0/15</div>
+  <div id="badgeLabel">BADGES 0/16</div>
   <div id="badgeRow"></div>
   <div class="board" id="overBoard">
     <h2>TOP SCORES</h2>
@@ -366,7 +402,7 @@
 <div id="profileOverlay" class="overlay hidden">
   <h1 id="profileName">PLAYER</h1>
   <div id="profileScore">SCORE 000</div>
-  <div id="profileBadgeLabel">BADGES 0/15</div>
+  <div id="profileBadgeLabel">BADGES 0/16</div>
   <div id="profileBadgeRow"></div>
   <div id="profileHint">TAP OUTSIDE TO CLOSE</div>
   <div id="profileClose" class="cta">CLOSE</div>
@@ -378,6 +414,8 @@
 <script src="firebase-config.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="procedural-snake.js"></script>
+<script src="gate-maze.js"></script>
+<script src="circuit.js"></script>
 <script>
 (function(){
   'use strict';
@@ -395,9 +433,15 @@
   var obsMeshes=[];         /* THE OBSIDIAN boss room meshes (declared early) */
   var OBS_R=22;             /* boss room radius */
   var OBS_FLOAT=14, OBS_GROUND=3.2; /* float + slam heights (needed at mesh build time) */
-  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss, 'lava' pits, 'viper' feast */
+  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss, 'lava' pits, 'viper' feast, 'maze' gates, 'race' circuit */
   var lavaMeshes=[];        /* LAVA PITS meshes */
   var viperMeshes=[];       /* VIPER'S FEAST boss room */
+  var mazeMeshes=[];        /* GATE MAZE meshes */
+  var raceMeshes=[];        /* THE CIRCUIT race level meshes */
+  var RACE_WP=CircuitLib.RACE_WP, RACE_SEG=CircuitLib.RACE_SEG, RACE_CUM=CircuitLib.RACE_CUM, RACE_LEN=CircuitLib.RACE_LEN;
+  var raceAt=CircuitLib.raceAt, raceProject=CircuitLib.raceProject, raceOnGap=CircuitLib.raceOnGap;
+  var RACE_GAPS=CircuitLib.RACE_GAPS, RACE_RAMPS=CircuitLib.RACE_RAMPS, RACE_HAZ=CircuitLib.RACE_HAZ;
+  var RACE_SWING=CircuitLib.RACE_SWING, RACE_BOOSTS=CircuitLib.RACE_BOOSTS, RIVAL_COLORS=CircuitLib.RIVAL_COLORS;
   var VIPER_BOUND=30;       /* half-extent of square feast arena */
   var PIPE_K=0.032, PIPE_HW=10, CORR_XMAX=12.5, CORR_START=6, CORR_END=-130;
   var DIAMOND=0xbfeef8;
@@ -436,7 +480,20 @@
     if(level==='spiral')return 0; /* helix is one-way support, not terrain */
     if(level==='obsidian')return 0;
     if(level==='viper')return 0;
+    if(level==='maze')return 0;
     if(level==='lava') return lavaTerrainH(x,z);
+    if(level==='race'){
+      var h=0;
+      for(var ri=0;ri<RACE_RAMPS.length;ri++){
+        var rp=RACE_RAMPS[ri], p=raceAt(rp[0]);
+        var dz=(x-p.x)*p.tx+(z-p.z)*p.tz;
+        var dn=Math.abs((x-p.x)*(-p.tz)+(z-p.z)*p.tx);
+        if(Math.abs(dz)<=rp[1]&&dn<=p.w){
+          h=Math.max(h,(dz+rp[1])/(rp[1]*2)*4.6);
+        }
+      }
+      return h;
+    }
     if(level==='corridor'){ /* half-pipe: parabolic valley, steep outer walls */
       var d=Math.abs(x);
       return d<=PIPE_HW ? PIPE_K*d*d : PIPE_K*PIPE_HW*PIPE_HW+(d-PIPE_HW)*2;
@@ -483,8 +540,9 @@
     document.body.classList.remove('void');
   }
 
-  var camera=new THREE.PerspectiveCamera(42,window.innerWidth/window.innerHeight,0.1,300);
+  var camera=new THREE.PerspectiveCamera(42,window.innerWidth/window.innerHeight,0.1,800); /* 800: THE CIRCUIT spans ~600u */
   var CAM_OFFSET=new THREE.Vector3(0,42,17);
+  var MAZE_CAM_OFFSET=new THREE.Vector3(0,58,14);
   var camTarget=new THREE.Vector3();
 
   /* Dramatic toon lighting: hard key, low ambient, cool rim, spotlight pool
@@ -839,6 +897,630 @@
     viperFoods.push({mesh:vfm,alive:false,x:0,z:0,phase:Math.random()*6});
   }
   var viperExitPortal=viperReg(makePortal(0,0,INK));
+
+  /* ============================ GATE MAZE ============================ */
+  /* Pay gold gates, open the center chest for MAGNET, escape the beacon. */
+  var maze=null;
+  var MAZE_CELL=2.4, MAZE_WALL_H=2.35, MAZE_HALF_I=16;
+  var MAZE_MAGNET_R=12, MAZE_MAGNET_PULL=28;
+  var MAZE_TIME=90;
+  function mazeReg(m){ m.visible=false; scene.add(m); mazeMeshes.push(m); return m; }
+  function mazeWorld(r,c){
+    return {x:(c-MAZE_HALF_I)*MAZE_CELL, z:(r-MAZE_HALF_I)*MAZE_CELL};
+  }
+  function mazeCellOf(x,z){
+    return {
+      c:Math.round(x/MAZE_CELL)+MAZE_HALF_I,
+      r:Math.round(z/MAZE_CELL)+MAZE_HALF_I
+    };
+  }
+  /* Roll look: white toon walls + ink edges, dotted floor, gold discs */
+  var mazeWallMat=new THREE.MeshToonMaterial({color:0xffffff,gradientMap:gradientMap});
+  var mazeGateMat=new THREE.MeshToonMaterial({color:RED,gradientMap:gradientMap,transparent:true,opacity:1});
+  var mazeDotTex=dotTex.clone();
+  mazeDotTex.repeat.set(24,24);
+  mazeDotTex.needsUpdate=true;
+  var mazeFloor=mazeReg(new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+    new THREE.MeshToonMaterial({color:0xffffff,map:mazeDotTex,gradientMap:groundGradient})));
+  mazeFloor.rotation.x=-Math.PI/2;
+  var mazeExitBeacon=mazeReg(new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55,0.12,24),
+    new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap})));
+  mazeExitBeacon.add(new THREE.Mesh(
+    new THREE.CylinderGeometry(0.62,0.62,0.14,24),
+    new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+  var mazeExitPortal=mazeReg(makePortal(0,0,INK));
+  var mazeStartPortal=mazeReg(makePortal(0,0,INK));
+  /* chest — ink body, gold trim */
+  var mazeChestG=new THREE.Group();
+  mazeChestG.visible=false;
+  (function(){
+    var body=new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap});
+    var trim=new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap});
+    var base=new THREE.Mesh(new THREE.BoxGeometry(1.35,0.72,0.95),body);
+    base.position.y=0.36;
+    var band=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.2,0.98),trim);
+    band.position.y=0.42;
+    var lidPivot=new THREE.Group();
+    lidPivot.position.set(0,0.72,-0.47);
+    var lid=new THREE.Mesh(new THREE.BoxGeometry(1.35,0.32,0.95),body);
+    lid.position.set(0,0.16,0.47);
+    var lock=new THREE.Mesh(new THREE.BoxGeometry(0.28,0.28,0.12),trim);
+    lock.position.set(0,0.04,0.95);
+    lidPivot.add(lid); lidPivot.add(lock);
+    mazeChestG.add(base); mazeChestG.add(band); mazeChestG.add(lidPivot);
+    mazeChestG.userData.lidPivot=lidPivot;
+  })();
+  scene.add(mazeChestG); mazeMeshes.push(mazeChestG);
+  /* coins built after shared coinGeo (ensureMazeCoins) */
+  var mazeCoinsPool=[];
+  var mazeGatePool=[];
+  for(var mgi=0;mgi<24;mgi++){
+    var gGeo=new THREE.BoxGeometry(1,1,1);
+    var gm=mazeReg(new THREE.Mesh(gGeo,mazeGateMat.clone()));
+    gm.add(new THREE.LineSegments(new THREE.EdgesGeometry(gGeo),
+      new THREE.LineBasicMaterial({color:INK})));
+    mazeGatePool.push({mesh:gm,cost:0,open:false,paying:false,r:0,c:0,axis:'x',anim:0});
+  }
+  var mazeWallPool=[];
+  var mazeWallGeo=new THREE.BoxGeometry(MAZE_CELL*0.98,MAZE_WALL_H,MAZE_CELL*0.98);
+  var mazeWallEdgeGeo=new THREE.EdgesGeometry(mazeWallGeo);
+  for(var mwi=0;mwi<650;mwi++){
+    var wall=mazeReg(new THREE.Mesh(mazeWallGeo,mazeWallMat));
+    wall.add(new THREE.LineSegments(mazeWallEdgeGeo,new THREE.LineBasicMaterial({color:INK})));
+    mazeWallPool.push(wall);
+  }
+  /* debug hub portal */
+  var mazeDebugPortal=makePortal(-14,14,GOLD);
+  mazeDebugPortal.visible=false;
+  scene.add(mazeDebugPortal);
+  var mazeDebugShadow=new THREE.Mesh(new THREE.CircleGeometry(1.55,28),
+    new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.55}));
+  mazeDebugShadow.rotation.x=-Math.PI/2;
+  mazeDebugShadow.position.set(-14+SDX*0.7,0.02,14+SDZ*0.7);
+  mazeDebugShadow.visible=false;
+  scene.add(mazeDebugShadow);
+
+  /* ============================ THE CIRCUIT ============================ */
+  function raceReg(m){ m.visible=false; scene.add(m); raceMeshes.push(m); return m; }
+  (function(){
+    /* road surface: a ribbon following the spline, with holes punched out */
+    var verts=[], norms=[];
+    var STEP=1.5, NA=14;
+    for(var sv=0;sv<RACE_LEN-STEP;sv+=STEP){
+      var p0=raceAt(sv), p1=raceAt(sv+STEP);
+      for(var i=0;i<NA;i++){
+        var u0=i/NA*2-1, u1=(i+1)/NA*2-1;
+        var o00=u0*p0.w, o01=u1*p0.w, o10=u0*p1.w, o11=u1*p1.w;
+        var mid=(o00+o01)/2, midS=sv+STEP/2;
+        if(raceOnGap(midS,mid))continue;
+        var n0x=-p0.tz,n0z=p0.tx, n1x=-p1.tz,n1z=p1.tx;
+        var A=[p0.x+n0x*o00,0,p0.z+n0z*o00], B=[p1.x+n1x*o10,0,p1.z+n1z*o10];
+        var C=[p1.x+n1x*o11,0,p1.z+n1z*o11], D=[p0.x+n0x*o01,0,p0.z+n0z*o01];
+        [A,B,C,A,C,D].forEach(function(v){ verts.push(v[0],v[1],v[2]); norms.push(0,1,0); });
+      }
+    }
+    var g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(verts),3));
+    g.setAttribute('normal',new THREE.BufferAttribute(new Float32Array(norms),3));
+    raceReg(new THREE.Mesh(g,new THREE.MeshToonMaterial({color:0xffffff,map:dotTex,
+      gradientMap:groundGradient})));
+    /* ink edge rails */
+    [-1,1].forEach(function(side){
+      var rv=[];
+      for(var sv=0;sv<RACE_LEN-2;sv+=2){
+        var a=raceAt(sv), b=raceAt(sv+2);
+        var an=[-a.tz,a.tx], bn=[-b.tz,b.tx];
+        var A=[a.x+an[0]*a.w*side,0.06,a.z+an[1]*a.w*side];
+        var B=[b.x+bn[0]*b.w*side,0.06,b.z+bn[1]*b.w*side];
+        var A2=[a.x+an[0]*(a.w+0.5)*side,0.06,a.z+an[1]*(a.w+0.5)*side];
+        var B2=[b.x+bn[0]*(b.w+0.5)*side,0.06,b.z+bn[1]*(b.w+0.5)*side];
+        rv.push(A[0],A[1],A[2],B[0],B[1],B[2],B2[0],B2[1],B2[2],
+                A[0],A[1],A[2],B2[0],B2[1],B2[2],A2[0],A2[1],A2[2]);
+      }
+      var rg=new THREE.BufferGeometry();
+      rg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(rv),3));
+      rg.computeVertexNormals();
+      raceReg(new THREE.Mesh(rg,new THREE.MeshBasicMaterial({color:INK,side:THREE.DoubleSide})));
+    });
+    /* start line */
+    var slp=raceAt(2);
+    var sl=raceReg(new THREE.Mesh(new THREE.PlaneGeometry(slp.w*2,1.2),
+      new THREE.MeshBasicMaterial({color:INK})));
+    sl.rotation.x=-Math.PI/2; sl.position.set(slp.x,0.07,slp.z);
+    sl.rotation.z=Math.atan2(slp.tx,slp.tz);
+    /* ramps */
+    RACE_RAMPS.forEach(function(rp){
+      var p=raceAt(rp[0]);
+      var L=rp[1]*2, W=p.w*2, HT=4.6;
+      var v=new Float32Array([
+        -W/2,0,-L/2,  W/2,0,-L/2,  W/2,HT,L/2,   -W/2,0,-L/2,  W/2,HT,L/2,  -W/2,HT,L/2,
+        -W/2,0,-L/2, -W/2,HT,L/2, -W/2,0,L/2,
+         W/2,0,-L/2,  W/2,0,L/2,   W/2,HT,L/2,
+        -W/2,0,L/2,  -W/2,HT,L/2,  W/2,HT,L/2,   -W/2,0,L/2,   W/2,HT,L/2,  W/2,0,L/2
+      ]);
+      var g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.BufferAttribute(v,3));
+      g.computeVertexNormals();
+      var m=raceReg(new THREE.Mesh(g,new THREE.MeshToonMaterial({color:0xffffff,
+        gradientMap:gradientMap,side:THREE.DoubleSide})));
+      m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g),
+        new THREE.LineBasicMaterial({color:INK})));
+      m.position.set(p.x,0.02,p.z);
+      m.rotation.y=Math.atan2(p.tx,p.tz);
+    });
+    /* boost pads */
+    RACE_BOOSTS.forEach(function(bp){
+      var p=raceAt(bp[0]);
+      var nx=-p.tz,nz=p.tx;
+      var m=raceReg(new THREE.Mesh(new THREE.PlaneGeometry(3.4,4.4),
+        new THREE.MeshBasicMaterial({color:BLUE,transparent:true,opacity:0.75})));
+      m.rotation.x=-Math.PI/2;
+      m.rotation.z=Math.atan2(p.tx,p.tz);
+      m.position.set(p.x+nx*bp[1],0.08,p.z+nz*bp[1]);
+    });
+  })();
+  var raceHazards=[];
+  RACE_HAZ.forEach(function(h){
+    var p=raceAt(h[0]);
+    var nx=-p.tz,nz=p.tx;
+    var m=raceReg(new THREE.Mesh(new THREE.BoxGeometry(h[2]*2,1.3,0.8),
+      new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
+    m.position.set(p.x+nx*h[1],0.9,p.z+nz*h[1]);
+    raceHazards.push({mesh:m,x:m.position.x,z:m.position.z,len:h[2],spd:h[3],a:Math.random()*Math.PI});
+  });
+  (function(){
+    RACE_GAPS.forEach(function(g){
+      var s0=g[0], s1=g[1], c=g[2], hw=g[3];
+      var vv=[];
+      for(var sv=s0;sv<s1;sv+=1.2){
+        var a=raceAt(sv), b=raceAt(Math.min(s1,sv+1.2));
+        var an=[-a.tz,a.tx], bn=[-b.tz,b.tx];
+        var A=[a.x+an[0]*(c-hw),-2.2,a.z+an[1]*(c-hw)];
+        var B=[b.x+bn[0]*(c-hw),-2.2,b.z+bn[1]*(c-hw)];
+        var C=[b.x+bn[0]*(c+hw),-2.2,b.z+bn[1]*(c+hw)];
+        var D=[a.x+an[0]*(c+hw),-2.2,a.z+an[1]*(c+hw)];
+        vv.push(A[0],A[1],A[2],B[0],B[1],B[2],C[0],C[1],C[2],
+                A[0],A[1],A[2],C[0],C[1],C[2],D[0],D[1],D[2]);
+      }
+      var vg=new THREE.BufferGeometry();
+      vg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(vv),3));
+      vg.computeVertexNormals();
+      raceReg(new THREE.Mesh(vg,new THREE.MeshBasicMaterial({color:0x101018,side:THREE.DoubleSide})));
+      [-1,1].forEach(function(side){
+        var wv=[];
+        for(var sv2=s0;sv2<s1;sv2+=1.2){
+          var a2=raceAt(sv2), b2=raceAt(Math.min(s1,sv2+1.2));
+          var an2=[-a2.tz,a2.tx], bn2=[-b2.tz,b2.tx];
+          var off=c+hw*side;
+          var At=[a2.x+an2[0]*off,0.02,a2.z+an2[1]*off];
+          var Bt=[b2.x+bn2[0]*off,0.02,b2.z+bn2[1]*off];
+          var Ab=[a2.x+an2[0]*off,-2.2,a2.z+an2[1]*off];
+          var Bb=[b2.x+bn2[0]*off,-2.2,b2.z+bn2[1]*off];
+          wv.push(At[0],At[1],At[2],Bt[0],Bt[1],Bt[2],Bb[0],Bb[1],Bb[2],
+                  At[0],At[1],At[2],Bb[0],Bb[1],Bb[2],Ab[0],Ab[1],Ab[2]);
+        }
+        var wg=new THREE.BufferGeometry();
+        wg.setAttribute('position',new THREE.BufferAttribute(new Float32Array(wv),3));
+        wg.computeVertexNormals();
+        raceReg(new THREE.Mesh(wg,new THREE.MeshBasicMaterial({color:0x2a2a34,side:THREE.DoubleSide})));
+      });
+      [-1,1].forEach(function(side){
+        var rv=[];
+        for(var sv3=s0;sv3<s1;sv3+=1.2){
+          var a3=raceAt(sv3), b3=raceAt(Math.min(s1,sv3+1.2));
+          var an3=[-a3.tz,a3.tx], bn3=[-b3.tz,b3.tx];
+          var o1=c+hw*side, o2=c+(hw+0.45)*side;
+          var P1=[a3.x+an3[0]*o1,0.09,a3.z+an3[1]*o1];
+          var P2=[b3.x+bn3[0]*o1,0.09,b3.z+bn3[1]*o1];
+          var P3=[b3.x+bn3[0]*o2,0.09,b3.z+bn3[1]*o2];
+          var P4=[a3.x+an3[0]*o2,0.09,a3.z+an3[1]*o2];
+          rv.push(P1[0],P1[1],P1[2],P2[0],P2[1],P2[2],P3[0],P3[1],P3[2],
+                  P1[0],P1[1],P1[2],P3[0],P3[1],P3[2],P4[0],P4[1],P4[2]);
+        }
+        var rg2=new THREE.BufferGeometry();
+        rg2.setAttribute('position',new THREE.BufferAttribute(new Float32Array(rv),3));
+        rg2.computeVertexNormals();
+        raceReg(new THREE.Mesh(rg2,new THREE.MeshBasicMaterial({color:INK,side:THREE.DoubleSide})));
+      });
+      for(var k=0;k<3;k++){
+        var cs=s0-4-k*3.2;
+        if(cs<2)continue;
+        var cp=raceAt(cs);
+        var cn=[-cp.tz,cp.tx];
+        var ch=raceReg(new THREE.Mesh(new THREE.PlaneGeometry(hw*2,1.1),
+          new THREE.MeshBasicMaterial({color:INK,transparent:true,
+            opacity:0.28+k*0.22,side:THREE.DoubleSide})));
+        ch.rotation.x=-Math.PI/2;
+        ch.rotation.z=Math.atan2(cp.tx,cp.tz);
+        ch.position.set(cp.x+cn[0]*c,0.08,cp.z+cn[1]*c);
+      }
+    });
+  })();
+  var raceSwings=[];
+  RACE_SWING.forEach(function(sw){
+    var p=raceAt(sw[0]);
+    var m=raceReg(new THREE.Mesh(new THREE.BoxGeometry(2.4,2.4,2.4),
+      new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
+    var sh=raceReg(new THREE.Mesh(new THREE.CircleGeometry(1.5,20),
+      new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.5,depthWrite:false})));
+    sh.rotation.x=-Math.PI/2;
+    raceSwings.push({mesh:m,shadow:sh,s:sw[0],amp:sw[1],spd:sw[2],a:Math.random()*Math.PI*2});
+  });
+  var racePortal=raceReg(makePortal(0,0));
+  (function(){
+    var p=raceAt(RACE_LEN-3);
+    racePortal.position.set(p.x,1.7,p.z);
+  })();
+  var rivals=[];
+  (function(){
+    for(var i=0;i<3;i++){
+      var m=raceReg(new THREE.Mesh(new THREE.SphereGeometry(RADIUS,20,16),
+        new THREE.MeshToonMaterial({color:RIVAL_COLORS[i],gradientMap:gradientMap})));
+      var sh=raceReg(new THREE.Mesh(new THREE.CircleGeometry(RADIUS*0.9,20),
+        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.5,depthWrite:false})));
+      sh.rotation.x=-Math.PI/2;
+      rivals.push({mesh:m,shadow:sh,x:0,z:0,vx:0,vz:0,s:0,lane:0,
+        skill:[0.80,0.88,0.96][i],fin:null,recov:0});
+    }
+  })();
+  /* debug hub portal — NOT in raceMeshes (hub rest only, like maze debug) */
+  var raceDebugPortal=makePortal(-9,-19,0x7a3ff2);
+  raceDebugPortal.visible=false;
+  scene.add(raceDebugPortal);
+  var raceDebugShadow=new THREE.Mesh(new THREE.CircleGeometry(1.55,28),
+    new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.55}));
+  raceDebugShadow.rotation.x=-Math.PI/2;
+  raceDebugShadow.position.set(-9+SDX*0.7,0.02,-19+SDZ*0.7);
+  raceDebugShadow.visible=false;
+  scene.add(raceDebugShadow);
+  var raceDebugLabel=new THREE.Mesh(new THREE.RingGeometry(2.2,2.5,32),
+    new THREE.MeshBasicMaterial({color:0x7a3ff2,transparent:true,opacity:0.5,side:THREE.DoubleSide}));
+  raceDebugLabel.rotation.x=-Math.PI/2;
+  raceDebugLabel.position.set(-9,0.05,-19);
+  raceDebugLabel.visible=false;
+  scene.add(raceDebugLabel);
+
+
+  function setMazeVisible(v){
+    for(var i=0;i<mazeMeshes.length;i++) mazeMeshes[i].visible=!!v&&mazeMeshes[i].userData.keep!==false;
+    if(!v){
+      mazeChestG.visible=false;
+      mazeExitPortal.visible=false;
+      mazeStartPortal.visible=false;
+      for(var c=0;c<mazeCoinsPool.length;c++){
+        mazeCoinsPool[c].alive=false; mazeCoinsPool[c].mesh.visible=false;
+        if(mazeCoinsPool[c].shadow) mazeCoinsPool[c].shadow.visible=false;
+      }
+      for(var g=0;g<mazeGatePool.length;g++) mazeGatePool[g].mesh.visible=false;
+      for(var w=0;w<mazeWallPool.length;w++) mazeWallPool[w].visible=false;
+    }
+  }
+  function clearMazeLive(){
+    if(!maze) return;
+    for(var c=0;c<mazeCoinsPool.length;c++){
+      mazeCoinsPool[c].alive=false; mazeCoinsPool[c].mesh.visible=false;
+      if(mazeCoinsPool[c].shadow) mazeCoinsPool[c].shadow.visible=false;
+    }
+    for(var g=0;g<mazeGatePool.length;g++){
+      mazeGatePool[g].mesh.visible=false; mazeGatePool[g].open=false; mazeGatePool[g].paying=false;
+    }
+    mazeChestG.visible=false;
+    mazeExitPortal.visible=false;
+    mazeStartPortal.visible=false;
+    mazeExitBeacon.visible=false;
+    hideMazeCollapseHud();
+    maze=null;
+  }
+  function mazeIsSolid(r,c){
+    if(!maze) return true;
+    if(r<0||r>=maze.SIZE||c<0||c>=maze.SIZE) return true;
+    if(maze.grid[r][c]===1) return true;
+    for(var i=0;i<maze.gates.length;i++){
+      var g=maze.gates[i];
+      /* open or currently paying → walk-through; only closed unpaid gates block */
+      if(!g.open&&!g.paying&&g.r===r&&g.c===c) return true;
+    }
+    return false;
+  }
+  function mazeResolveCollisions(){
+    if(!maze) return;
+    var rad=RADIUS*0.92;
+    for(var pass=0;pass<2;pass++){
+      var cell=mazeCellOf(pos.x,pos.z);
+      for(var r=cell.r-1;r<=cell.r+1;r++) for(var c=cell.c-1;c<=cell.c+1;c++){
+        if(!mazeIsSolid(r,c)) continue;
+        var w=mazeWorld(r,c);
+        var half=MAZE_CELL*0.5;
+        var nx=Math.max(w.x-half, Math.min(pos.x, w.x+half));
+        var nz=Math.max(w.z-half, Math.min(pos.z, w.z+half));
+        var dx=pos.x-nx, dz=pos.z-nz;
+        var d2=dx*dx+dz*dz;
+        if(d2>=rad*rad) continue;
+        if(d2<1e-8){ pos.z=w.z+half+rad; continue; }
+        var d=Math.sqrt(d2), push=(rad-d)/d;
+        pos.x+=dx*push; pos.z+=dz*push;
+        var vn=vel.x*(dx/d)+vel.z*(dz/d);
+        if(vn<0){ vel.x-=(1+REST)*vn*(dx/d); vel.z-=(1+REST)*vn*(dz/d); }
+      }
+    }
+    var lim=MAZE_HALF_I*MAZE_CELL-MAZE_CELL*0.5-rad;
+    if(pos.x> lim){pos.x= lim; if(vel.x>0)vel.x=-vel.x*REST;}
+    if(pos.x<-lim){pos.x=-lim; if(vel.x<0)vel.x=-vel.x*REST;}
+    if(pos.z> lim){pos.z= lim; if(vel.z>0)vel.z=-vel.z*REST;}
+    if(pos.z<-lim){pos.z=-lim; if(vel.z<0)vel.z=-vel.z*REST;}
+  }
+  function enterMaze(){
+    level='maze';
+    clearThreats();
+    setCorridorVisible(false);
+    setSpiralVisible(false);
+    setObsVisible(false);
+    setLavaVisible(false);
+    setViperVisible(false);
+    clearViperLive();
+    mazeDebugPortal.visible=false;
+    mazeDebugShadow.visible=false;
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
+    hideHubPortalHud();
+    hubPortal.visible=false; hubPortalShadow.visible=false;
+    scene.fog=null; scene.background=WHITE_BG;
+    inkMeterEl.style.display='none';
+    if(bossHudEl) bossHudEl.classList.remove('on');
+    ballMat.color.setHex(RED);
+    exitVoidLook();
+    setArenaVisible(false);
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
+    heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
+    clearMazeLive();
+    ensureMazeCoins();
+
+    var data=GateMazeLib.buildLevel();
+    MAZE_HALF_I=data.HALF;
+    var side=data.SIZE*MAZE_CELL;
+    mazeFloor.scale.set(side,side,1);
+    mazeDotTex.repeat.set(side*0.55,side*0.55);
+    mazeFloor.visible=true;
+
+    var wi=0;
+    for(var r=0;r<data.SIZE;r++) for(var c=0;c<data.SIZE;c++){
+      if(data.grid[r][c]!==1) continue;
+      if(wi>=mazeWallPool.length) break;
+      var wall=mazeWallPool[wi++];
+      var wp=mazeWorld(r,c);
+      wall.position.set(wp.x,MAZE_WALL_H/2,wp.z);
+      wall.visible=true;
+    }
+    for(;wi<mazeWallPool.length;wi++) mazeWallPool[wi].visible=false;
+
+    var gates=[];
+    for(var gi=0;gi<data.gates.length;gi++){
+      var gd=data.gates[gi];
+      var gp=mazeGatePool[gi];
+      var along=gd.axis;
+      if(along==='x') gp.mesh.scale.set(0.28,MAZE_WALL_H,MAZE_CELL*0.92);
+      else gp.mesh.scale.set(MAZE_CELL*0.92,MAZE_WALL_H,0.28);
+      var gw=mazeWorld(gd.r,gd.c);
+      gp.mesh.position.set(gw.x,MAZE_WALL_H/2,gw.z);
+      gp.mesh.visible=true;
+      gp.mesh.material.color.setHex(RED);
+      gp.mesh.material.opacity=1;
+      gp.cost=gd.cost; gp.open=false; gp.paying=false; gp.r=gd.r; gp.c=gd.c; gp.axis=along; gp.anim=0;
+      gates.push(gp);
+    }
+    for(var gj=data.gates.length;gj<mazeGatePool.length;gj++) mazeGatePool[gj].mesh.visible=false;
+
+    var coins=[];
+    for(var ci=0;ci<data.coinCells.length&&ci<mazeCoinsPool.length;ci++){
+      var cc=data.coinCells[ci];
+      var coin=mazeCoinsPool[ci];
+      var cw=mazeWorld(cc[0],cc[1]);
+      coin.alive=true; coin.x=cw.x; coin.z=cw.z; coin.vx=0; coin.vz=0;
+      coin.mesh.visible=true;
+      coin.mesh.position.set(cw.x,0.85,cw.z);
+      if(coin.shadow){
+        coin.shadow.visible=true;
+        coin.shadow.position.set(cw.x+SDX*0.5,0.02,cw.z+SDZ*0.5);
+      }
+      coins.push(coin);
+    }
+    for(var cj=data.coinCells.length;cj<mazeCoinsPool.length;cj++){
+      mazeCoinsPool[cj].alive=false; mazeCoinsPool[cj].mesh.visible=false;
+      if(mazeCoinsPool[cj].shadow) mazeCoinsPool[cj].shadow.visible=false;
+    }
+
+    var ch=mazeWorld(data.chest[0],data.chest[1]);
+    mazeChestG.position.set(ch.x,0,ch.z);
+    mazeChestG.rotation.y=Math.PI/5;
+    mazeChestG.visible=true;
+    mazeChestG.userData.lidPivot.rotation.x=0;
+
+    var ex=mazeWorld(data.exit[0],data.exit[1]);
+    mazeExitBeacon.position.set(ex.x,0.08,ex.z);
+    mazeExitBeacon.visible=false;
+    mazeExitPortal.position.set(ex.x,1.7,ex.z);
+    mazeExitPortal.visible=false;
+
+    var st=mazeWorld(data.start[0],data.start[1]);
+    mazeStartPortal.position.set(st.x,1.7,st.z);
+    mazeStartPortal.visible=true;
+    maze={
+      SIZE:data.SIZE, grid:data.grid, gates:gates, coins:coins,
+      magnet:false, chestOpen:false, done:false,
+      denyT:0, hintT:0, leaveArmed:false, t:MAZE_TIME,
+      chestX:ch.x, chestZ:ch.z,
+      exitX:ex.x, exitZ:ex.z,
+      startX:st.x, startZ:st.z
+    };
+
+    /* spawn a cell toward the center so the start portal isn't entered instantly */
+    var sdx=ch.x-st.x, sdz=ch.z-st.z, sd=Math.hypot(sdx,sdz)||1;
+    pos.set(st.x+sdx/sd*MAZE_CELL*1.35, RADIUS, st.z+sdz/sd*MAZE_CELL*1.35);
+    vel.set(0,0,0); grounded=true;
+    iframes=Math.max(iframes,1.2);
+    sayBossBanner('GATE MAZE');
+    toastQueue.push('PAY THE GATES'); showNextToast();
+    updateMazeCollapseHud();
+    spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
+  function hideMazeCollapseHud(){
+    if(hubPortalHudEl) hubPortalHudEl.classList.remove('on');
+  }
+  function updateMazeCollapseHud(){
+    if(!hubPortalHudEl||!maze||maze.done){ hideMazeCollapseHud(); return; }
+    var left=Math.max(0, Math.ceil(maze.t));
+    hubPortalHudEl.classList.add('on');
+    hubPortalHudEl.textContent='MAZE COLLAPSE IN '+left;
+  }
+  function finishMaze(){
+    if(!maze||maze.done) return;
+    maze.done=true;
+    hideMazeCollapseHud();
+    mazeExitBeacon.visible=false;
+    mazeExitPortal.position.set(maze.chestX,1.7,maze.chestZ);
+    mazeExitPortal.visible=true;
+    coinScore+=800; updateHUD();
+    toastQueue.push('+800'); showNextToast();
+    toastQueue.push('PORTAL OPEN'); showNextToast();
+    spawnShock(maze.chestX,maze.chestZ); fovPulse=0.25; boomSfx(); badgeSfx();
+    iframes=Math.max(iframes,2);
+  }
+  function showMagnetUnlock(){
+    state='raygun';
+    input.x=0; input.y=0;
+    if(magnetSlotEl) magnetSlotEl.classList.add('got');
+    if(chestOvIcon) chestOvIcon.textContent='\uD83E\uDDF2'; /* 🧲 */
+    if(chestOvLabel) chestOvLabel.textContent='MAGNET UNLOCKED';
+    chestOv.classList.remove('hidden');
+    badgeSfx(); boomSfx();
+    setTimeout(function(){
+      if(state!=='raygun')return;
+      chestOv.classList.add('hidden');
+      if(chestOvIcon) chestOvIcon.textContent='\uD83D\uDD2B'; /* 🔫 */
+      if(chestOvLabel) chestOvLabel.textContent='RAYGUN UNLOCKED';
+      state='play';
+      finishMaze();
+    },2200);
+  }
+  function mazeTryHubPortal(portal){
+    if(state!=='play'||!portal||!portal.visible) return false;
+    if(Math.hypot(pos.x-portal.position.x,pos.z-portal.position.z)<2
+       &&Math.abs(pos.y-portal.position.y)<1.8){
+      returnToHub();
+      return true;
+    }
+    return false;
+  }
+  function stepMaze(dt){
+    if(!maze) return;
+    if(bossBannerT>0){
+      bossBannerT-=dt;
+      bossBannerEl.style.opacity=String(Math.min(1,bossBannerT/0.35));
+      if(bossBannerT<=0) bossBannerEl.style.opacity='0';
+    }
+
+    /* start portal always leads home; arm after the player walks clear of spawn */
+    mazeStartPortal.rotation.y+=1.4*dt;
+    mazeStartPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+    if(!maze.leaveArmed){
+      if(Math.hypot(pos.x-maze.startX,pos.z-maze.startZ)>2.6) maze.leaveArmed=true;
+    } else if(mazeTryHubPortal(mazeStartPortal)) return;
+
+    if(maze.done){
+      mazeExitPortal.rotation.y+=1.4*dt;
+      mazeExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+      mazeTryHubPortal(mazeExitPortal);
+      return;
+    }
+
+    maze.t-=dt;
+    updateMazeCollapseHud();
+    if(maze.t<=0){
+      toastQueue.push('MAZE COLLAPSED'); showNextToast();
+      hideMazeCollapseHud();
+      failToHub();
+      return;
+    }
+    maze.denyT-=dt; maze.hintT-=dt;
+
+    /* gates — touch the face to pay; gold flies from HUD, gate opens immediately */
+    var gateReach=MAZE_CELL*0.5+RADIUS+0.45;
+    for(var gi=0;gi<maze.gates.length;gi++){
+      var g=maze.gates[gi];
+      if(g.open||g.paying){
+        if(g.anim>0&&g.anim<1){
+          g.anim=Math.min(1,g.anim+dt/0.7);
+          g.mesh.position.y=MAZE_WALL_H/2 - g.anim*1.6;
+          g.mesh.material.opacity=1-g.anim;
+          if(g.anim>=1) g.mesh.visible=false;
+        }
+        continue;
+      }
+      var gw=mazeWorld(g.r,g.c);
+      if(Math.hypot(pos.x-gw.x,pos.z-gw.z)<gateReach){
+        if(coinsBanked>=g.cost){
+          g.paying=true;
+          g.open=true;
+          g.anim=0.001;
+          toastQueue.push('-'+g.cost); showNextToast();
+          toastQueue.push('GATE OPEN'); showNextToast();
+          thudSfx(); badgeSfx(); spawnShock(gw.x,gw.z);
+          spendCoinsTo(gw.x, MAZE_WALL_H*0.55, gw.z, g.cost, null);
+        } else if(maze.denyT<=0){
+          maze.denyT=1.4;
+          toastQueue.push('NEED '+g.cost+' GOLD'); showNextToast();
+          thudSfx();
+        }
+      }
+    }
+
+    /* magnet pull */
+    if(maze.magnet){
+      for(var mi=0;mi<maze.coins.length;mi++){
+        var mc=maze.coins[mi];
+        if(!mc.alive) continue;
+        var mdx=pos.x-mc.x, mdz=pos.z-mc.z, md=Math.hypot(mdx,mdz);
+        if(md<MAZE_MAGNET_R&&md>0.05){
+          var pull=MAZE_MAGNET_PULL*(1-md/MAZE_MAGNET_R);
+          mc.vx+=mdx/md*pull*dt;
+          mc.vz+=mdz/md*pull*dt;
+        }
+        mc.vx*=Math.max(0,1-3.5*dt); mc.vz*=Math.max(0,1-3.5*dt);
+        mc.x+=mc.vx*dt; mc.z+=mc.vz*dt;
+      }
+    }
+
+    /* coins — same bank + fly-to-HUD as every other level */
+    for(var ci=0;ci<maze.coins.length;ci++){
+      var coin=maze.coins[ci];
+      if(!coin.alive) continue;
+      coin.mesh.rotation.y+=2.4*dt;
+      var cy=0.85+Math.sin(elapsed*3+coin.phase)*0.08;
+      coin.mesh.position.set(coin.x, cy, coin.z);
+      if(coin.shadow){
+        coin.shadow.position.set(coin.x+SDX*0.5,0.02,coin.z+SDZ*0.5);
+        coin.shadow.visible=true;
+      }
+      if(Math.hypot(pos.x-coin.x,pos.z-coin.z)<RADIUS+0.55){
+        coin.alive=false; coin.mesh.visible=false;
+        if(coin.shadow) coin.shadow.visible=false;
+        collected++; combo++;
+        coinScore+=5*Math.min(combo,12);
+        flyCoin(coin.x,cy,coin.z); coinBlip(); updateHUD();
+      }
+    }
+
+    /* chest → magnet unlock overlay, then hub portal at the chest */
+    if(!maze.chestOpen&&Math.hypot(pos.x-maze.chestX,pos.z-maze.chestZ)<1.35){
+      maze.chestOpen=true; maze.magnet=true;
+      maze.chestAnim=1;
+      mazeChestG.userData.lidPivot.rotation.x=-1.9;
+      spawnShock(maze.chestX,maze.chestZ); fovPulse=0.25;
+      showMagnetUnlock();
+    }
+  }
 
   /* ============================ LAVA PITS ============================ */
   var LAVA={
@@ -2054,6 +2736,59 @@
     el.addEventListener('transitionend',bank,{once:true});
     setTimeout(bank,700); /* fallback if transitionend never fires */
   }
+  /* Maze coins: same gold disc + ink outline + drop shadow as hub / climb */
+  function ensureMazeCoins(){
+    if(mazeCoinsPool.length) return;
+    for(var i=0;i<120;i++){
+      var m=mazeReg(new THREE.Mesh(coinGeo,
+        new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap})));
+      m.add(new THREE.Mesh(coinOutGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+      var csh=mazeReg(new THREE.Mesh(new THREE.CircleGeometry(0.36,24),
+        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.85})));
+      csh.rotation.x=-Math.PI/2;
+      mazeCoinsPool.push({mesh:m,shadow:csh,alive:false,x:0,z:0,vx:0,vz:0,phase:Math.random()*6.28});
+    }
+  }
+  /* Spend banked gold: animate coins from the HUD counter down to a world point */
+  function spendCoinsTo(x,y,z,amount,onDone){
+    amount=amount|0;
+    if(amount<=0){ if(onDone) onDone(); return true; }
+    if(coinsBanked<amount) return false;
+    var left=amount;
+    var r=coinsEl.getBoundingClientRect();
+    var sx0=r.left+r.width/2-8, sy0=r.top+r.height/2-8;
+    function launchOne(i){
+      coinsBanked--;
+      coinCountEl.innerHTML='&times; '+String(Math.max(0,coinsBanked)).padStart(2,'0');
+      coinsEl.classList.remove('bump');
+      void coinsEl.offsetWidth;
+      coinsEl.classList.add('bump');
+      coinBlip();
+      projV.set(x,y,z).project(camera);
+      var tx=(projV.x*0.5+0.5)*window.innerWidth-8;
+      var ty=(-projV.y*0.5+0.5)*window.innerHeight-8;
+      var el=document.createElement('div');
+      el.className='coinFly';
+      el.style.left=sx0+'px'; el.style.top=sy0+'px';
+      document.body.appendChild(el);
+      requestAnimationFrame(function(){requestAnimationFrame(function(){
+        el.style.left=tx+'px'; el.style.top=ty+'px';
+      });});
+      var done=false;
+      function arrive(){
+        if(done)return; done=true;
+        if(el.parentNode)el.parentNode.removeChild(el);
+        left--;
+        if(left<=0&&onDone) onDone();
+      }
+      el.addEventListener('transitionend',arrive,{once:true});
+      setTimeout(arrive,700);
+    }
+    for(var i=0;i<amount;i++){
+      (function(delay,idx){ setTimeout(function(){ launchOne(idx); }, delay); })(i*75, i);
+    }
+    return true;
+  }
 
   /* Speed lines: ink dashes on the ground behind the ball */
   var lines=[];
@@ -2285,6 +3020,14 @@
   var hearts=3, iframes=0, elapsed=0, collected=0, best=0;
   var spawnTimer=1.5, pipTimer=1, spiral=null, dropTimer=1.2;
   var combo=0, coinScore=0, scoreBase=0, pounding=false, poundReady=false, coyoteT=0;
+  var raceState='none', raceT=0, raceS=0, racePlace=1, raceFin=null, raceRecov=0, bumpCool=0;
+  var playerProxy={
+    get x(){return pos.x;}, set x(v){pos.x=v;},
+    get z(){return pos.z;}, set z(v){pos.z=v;},
+    get vx(){return vel.x;}, set vx(v){vel.x=v;},
+    get vz(){return vel.z;}, set vz(v){vel.z=v;}
+  };
+  var countdownEl=null, placeHudEl=null, miniEl=null, miniCtx=null, hitWhyEl=null, hitWhyT=0;
   var boostT=0, boostSpawnTimer=8;
   var hitStop=0, fovPulse=0, shakeT=0, shakeX=0, shakeZ=0;
   var storm=0, stormTimer=30;
@@ -2392,7 +3135,10 @@
   var inkMeterEl=document.getElementById('inkMeter');
   var inkFillEl=document.getElementById('inkFill');
   var chestOv=document.getElementById('raygunOverlay');
+  var chestOvIcon=document.getElementById('raygunUnlockIcon');
+  var chestOvLabel=document.getElementById('raygunLabel');
   var raySlotEl=document.getElementById('raySlot');
+  var magnetSlotEl=document.getElementById('magnetSlot');
   var stormSpan=stormEl.querySelector('span');
   var bossHudEl=document.getElementById('bossHud');
   var bossHpFillEl=document.getElementById('bossHpFill');
@@ -2428,6 +3174,7 @@
     {id:'flight',  g:'FF', name:'FIRST FLIGHT', how:'Launch off a hub ramp into the air.'},
     {id:'skyhigh', g:'SH', name:'SKY HIGH', how:'Reach a height of 9.5 or more outside the Nautilus.'},
     {id:'slayer',  g:'OB', name:'OBSIDIAN SLAYER', how:'Defeat THE OBSIDIAN with ground pounds.'},
+    {id:'racer',   g:'P1', name:'CIRCUIT CHAMPION', how:'Win THE CIRCUIT race in 1st place.'},
     {id:'combo8',  g:'C8', name:'RED HOT', how:'Reach a coin combo of x8 in one run.'},
     {id:'combo12', g:'CX', name:'MAX COMBO', how:'Reach a coin combo of x12 in one run.'},
     {id:'boss',    g:'BB', name:'BOSS BREAKER', how:'Pop a corridor ink boss with ground pounds.'},
@@ -2444,6 +3191,11 @@
   var BADGE_IDS={};
   for(var bi=0;bi<BADGES.length;bi++) BADGE_IDS[BADGES[bi].id]=BADGES[bi];
   var earned={};
+  countdownEl=document.getElementById('countdown');
+  placeHudEl=document.getElementById('placeHud');
+  miniEl=document.getElementById('minimap');
+  miniCtx=miniEl.getContext('2d');
+  hitWhyEl=document.getElementById('hitWhy');
   var toastEl=document.getElementById('toast');
   var hudBadgesEl=document.getElementById('hudBadges');
   var badgeRowEl=document.getElementById('badgeRow');
@@ -2999,7 +3751,10 @@
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
     major=null; majorDone=false; viper=null; FIELD_OFF=false;
     bossExitActive=false; bossExitPortal.visible=false;
-    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setViperVisible(false); setFieldVisible(true);
+    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setViperVisible(false); setMazeVisible(false); clearMazeLive(); setRaceVisible(false); raceState='none';
+    setFieldVisible(true);
+    mazeDebugPortal.visible=false; mazeDebugShadow.visible=false;
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     lastGroundY=RADIUS; dropTimer=1.2;
     punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
@@ -3019,7 +3774,10 @@
     hideHubPortalHud();
     raygunUnlocked=false; raygunT=0; rayFireCool=0; raygunSpawnTimer=8;
     raySlotEl.classList.remove('got');
+    if(magnetSlotEl) magnetSlotEl.classList.remove('got');
     chestOv.classList.add('hidden');
+    if(chestOvIcon) chestOvIcon.textContent='\uD83D\uDD2B';
+    if(chestOvLabel) chestOvLabel.textContent='RAYGUN UNLOCKED';
     var keyFlies=document.querySelectorAll('.rayFly');
     for(var ki=0;ki<keyFlies.length;ki++)keyFlies[ki].parentNode.removeChild(keyFlies[ki]);
     hubPortal.visible=false; hubPortalShadow.visible=false;
@@ -3593,6 +4351,166 @@
   }
 
   /* ------------------- level transitions ------------------- */
+
+  function sayHit(msg){
+    hitWhyEl.textContent=msg;
+    hitWhyEl.classList.add('show');
+    hitWhyT=1.1;
+  }
+  var MINI=(function(){
+    var xs=RACE_WP.map(function(w){return w[0];}), zs=RACE_WP.map(function(w){return w[1];});
+    var x0=Math.min.apply(null,xs)-12, x1=Math.max.apply(null,xs)+12;
+    var z0=Math.min.apply(null,zs)-12, z1=Math.max.apply(null,zs)+12;
+    return {x0:x0,x1:x1,z0:z0,z1:z1};
+  })();
+  function miniPt(x,z){
+    return { x:(x-MINI.x0)/(MINI.x1-MINI.x0)*74+2,
+             y:(z-MINI.z0)/(MINI.z1-MINI.z0)*114+2 };
+  }
+  function drawMinimap(){
+    miniCtx.clearRect(0,0,78,118);
+    miniCtx.strokeStyle='#111'; miniCtx.lineWidth=4.5;
+    miniCtx.lineJoin='round'; miniCtx.lineCap='round';
+    miniCtx.globalAlpha=0.18;
+    miniCtx.beginPath();
+    for(var i=0;i<RACE_WP.length;i++){
+      var p=miniPt(RACE_WP[i][0],RACE_WP[i][1]);
+      if(i===0)miniCtx.moveTo(p.x,p.y); else miniCtx.lineTo(p.x,p.y);
+    }
+    miniCtx.stroke();
+    miniCtx.globalAlpha=1;
+    var fp=miniPt(RACE_WP[RACE_WP.length-1][0],RACE_WP[RACE_WP.length-1][1]);
+    miniCtx.fillStyle='#111';
+    miniCtx.fillRect(fp.x-2.5,fp.y-2.5,5,5);
+    for(var r=0;r<rivals.length;r++){
+      var rv=rivals[r];
+      var rp=miniPt(rv.x,rv.z);
+      miniCtx.fillStyle=['#18a0e8','#f2b705','#7a3ff2'][r];
+      miniCtx.beginPath(); miniCtx.arc(rp.x,rp.y,2.6,0,6.284); miniCtx.fill();
+    }
+    var pp=miniPt(pos.x,pos.z);
+    miniCtx.fillStyle='#e8262a';
+    miniCtx.beginPath(); miniCtx.arc(pp.x,pp.y,3.4,0,6.284); miniCtx.fill();
+    miniCtx.strokeStyle='#111'; miniCtx.lineWidth=1.2;
+    miniCtx.stroke();
+  }
+  function setRaceVisible(v){
+    for(var i=0;i<raceMeshes.length;i++)raceMeshes[i].visible=!!v;
+    if(!v){
+      if(placeHudEl) placeHudEl.style.display='none';
+      if(countdownEl) countdownEl.className='';
+      if(miniEl) miniEl.style.display='none';
+      if(hitWhyEl) hitWhyEl.classList.remove('show');
+    }
+  }
+  function raceLaneOffset(i){ return (i-1.5)*3.4; }
+  function enterRace(){
+    level='race';
+    clearThreats();
+    setCorridorVisible(false);
+    setSpiralVisible(false);
+    setObsVisible(false);
+    setLavaVisible(false);
+    setViperVisible(false);
+    clearViperLive();
+    setMazeVisible(false); clearMazeLive();
+    mazeDebugPortal.visible=false; mazeDebugShadow.visible=false;
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
+    hideHubPortalHud();
+    hubPortal.visible=false; hubPortalShadow.visible=false;
+    scene.fog=null; scene.background=WHITE_BG;
+    inkMeterEl.style.display='none';
+    if(bossHudEl) bossHudEl.classList.remove('on');
+    ballMat.color.setHex(RED);
+    exitVoidLook();
+    setArenaVisible(false);
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
+    heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
+    setRaceVisible(true);
+    var lanes=[0,1,2,3];
+    var pl=lanes.splice(Math.floor(Math.random()*4),1)[0];
+    var p0=raceAt(2), n0x=-p0.tz, n0z=p0.tx;
+    var poff=raceLaneOffset(pl);
+    pos.set(p0.x+n0x*poff,RADIUS,p0.z+n0z*poff);
+    vel.set(0,0,0); grounded=true;
+    raceS=2; raceFin=null; raceRecov=0; racePlace=1; bumpCool=0;
+    for(var i=0;i<3;i++){
+      var rv=rivals[i], lo=raceLaneOffset(lanes[i]);
+      rv.lane=lo; rv.s=2; rv.fin=null; rv.recov=0;
+      rv.x=p0.x+n0x*lo; rv.z=p0.z+n0z*lo; rv.vx=0; rv.vz=0;
+      rv.mesh.position.set(rv.x,RADIUS,rv.z);
+      rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
+    }
+    raceState='count'; raceT=3.2;
+    placeHudEl.style.display='block';
+    placeHudEl.textContent='P1 / 4';
+    toastQueue.push('THE CIRCUIT'); showNextToast();
+    spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
+  }
+  function showCount(txt,isGo){
+    countdownEl.textContent=txt;
+    countdownEl.className='';
+    void countdownEl.offsetWidth;
+    countdownEl.className='pop'+(isGo?' go':'');
+    if(isGo){ boomSfx(); tone(880,0.18,'square',0.08,1320); }
+    else tone(440,0.12,'square',0.06);
+  }
+  function raceAIStep(rv,dt){
+    if(rv.fin)return;
+    var pr=raceProject(rv.x,rv.z,rv.s);
+    rv.s=pr.s;
+    var look=10;
+    var tgt=raceAt(rv.s+look);
+    var off=rv.lane, lim=tgt.w-1.2;
+    for(var gi=0;gi<RACE_GAPS.length;gi++){
+      var g=RACE_GAPS[gi];
+      if(rv.s+look>=g[0]-10&&rv.s+look<=g[1]+2&&Math.abs(off-g[2])<g[3]+1.6){
+        var L=g[2]-g[3]-2.0, Rr=g[2]+g[3]+2.0;
+        var okL=L>=-lim, okR=Rr<=lim;
+        if(okL&&okR)off=(Math.abs(L-off)<Math.abs(Rr-off))?L:Rr;
+        else if(okL)off=L; else off=Rr;
+      }
+    }
+    off=Math.max(-lim,Math.min(lim,off));
+    var nx=-tgt.tz, nz=tgt.tx;
+    var ix=(tgt.x+nx*off)-rv.x, iz=(tgt.z+nz*off)-rv.z;
+    var m=Math.hypot(ix,iz)||1; ix/=m; iz/=m;
+    var p1=raceAt(rv.s+6), p2=raceAt(rv.s+18);
+    var bend=Math.abs(Math.atan2(p2.tz,p2.tx)-Math.atan2(p1.tz,p1.tx));
+    var brake=Math.max(0.78,1-bend*0.5);
+    var agX=0, agZ=0;
+    var foes=[{x:pos.x,z:pos.z}];
+    for(var fi=0;fi<rivals.length;fi++)if(rivals[fi]!==rv)foes.push({x:rivals[fi].x,z:rivals[fi].z});
+    for(var fj=0;fj<foes.length;fj++){
+      var fdx=foes[fj].x-rv.x, fdz=foes[fj].z-rv.z;
+      var fd=Math.hypot(fdx,fdz);
+      if(fd<7&&fd>0.1){
+        var w=(1-fd/7)*rv.skill*0.55;
+        agX+=fdx/fd*w; agZ+=fdz/fd*w;
+      }
+    }
+    ix+=agX; iz+=agZ;
+    var im2=Math.hypot(ix,iz)||1; ix/=im2; iz/=im2;
+    var acc=ACCEL*(0.92+rv.skill*0.16)*brake;
+    rv.vx+=ix*acc*dt; rv.vz+=iz*acc*dt;
+    var d=Math.max(0,1-FRICTION*dt); rv.vx*=d; rv.vz*=d;
+    var sp=Math.hypot(rv.vx,rv.vz), mx=MAX_SPEED*(0.96+rv.skill*0.06)*brake;
+    if(sp>mx){rv.vx*=mx/sp;rv.vz*=mx/sp;}
+    rv.x+=rv.vx*dt; rv.z+=rv.vz*dt;
+    var pr2=raceProject(rv.x,rv.z,rv.s);
+    var pAt=raceAt(pr2.s);
+    if(Math.abs(pr2.off)>pAt.w||raceOnGap(pr2.s,pr2.off)){
+      rv.recov++;
+      rv.x=pAt.x; rv.z=pAt.z; rv.vx*=0.25; rv.vz*=0.25;
+    }
+    rv.s=pr2.s;
+    if(rv.s>=RACE_LEN-4&&!rv.fin)rv.fin=raceT;
+    rv.mesh.position.set(rv.x,RADIUS,rv.z);
+    rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
+  }
+
   function setArenaVisible(v){
     setFieldVisible(v);
   }
@@ -3621,6 +4539,9 @@
     setObsVisible(false);
     setLavaVisible(false);
     setViperVisible(false);
+    setMazeVisible(false); clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -3652,6 +4573,11 @@
     setLavaVisible(false);
     setViperVisible(false);
     clearViperLive();
+    setMazeVisible(false);
+    clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    mazeDebugPortal.visible=false; mazeDebugShadow.visible=false;
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -3712,6 +4638,10 @@
     setViperVisible(false);
     clearViperLive();
     viper=null;
+    setMazeVisible(false);
+    clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     returnToHub();
     resetRunScore();
@@ -3739,6 +4669,9 @@
     setSpiralVisible(false);
     setObsVisible(false);
     setViperVisible(false);
+    setMazeVisible(false); clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     setArenaVisible(false);
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -3769,6 +4702,9 @@
     setObsVisible(false);
     setLavaVisible(false);
     setViperVisible(false);
+    setMazeVisible(false); clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -3812,6 +4748,9 @@
     setSpiralVisible(false);
     setLavaVisible(false);
     setViperVisible(false);
+    setMazeVisible(false); clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     setArenaVisible(false);
     pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
@@ -4019,6 +4958,9 @@
     setSpiralVisible(false);
     setObsVisible(false);
     setLavaVisible(false);
+    setMazeVisible(false); clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     hideHubPortalHud();
     hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
@@ -4201,6 +5143,8 @@
     input.x=0; input.y=0;
     raygunUnlocked=true;
     raySlotEl.classList.add('got');
+    if(chestOvIcon) chestOvIcon.textContent='\uD83D\uDD2B'; /* 🔫 */
+    if(chestOvLabel) chestOvLabel.textContent='RAYGUN UNLOCKED';
     chestOv.classList.remove('hidden');
     badgeSfx(); boomSfx();
     setTimeout(function(){
@@ -4435,6 +5379,9 @@
       x:0, z:-4, tx:0, tz:-4, r:MAJOR_R, t:120
     };
     FIELD_OFF=true; setFieldVisible(false);
+    setMazeVisible(false); clearMazeLive();
+    setRaceVisible(false); raceState='none';
+    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     clearMajorLasers(); clearInkShots();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     chords.forEach(function(c){c.alive=false;c.mesh.visible=false;});
@@ -4504,6 +5451,7 @@
 
   /* ============================= Physics ============================= */
   function physicsStep(dt){
+    if(level==='race'&&raceState==='count'){ input.x=0; input.y=0; }
     var poisonK=(level==='obsidian')?1-(inkFill/INK_CAP)*0.45:1;
     var accelE=ACCEL*(boostT>0?BOOST_MULT:1)*poisonK; /* boost & poison scale accel + clamp together */
     var maxE=MAX_SPEED*(boostT>0?BOOST_MULT:1)*poisonK; /* so clamp still == terminal */
@@ -4636,6 +5584,9 @@
       pos.x=Math.max(-15, Math.min(15, pos.x));
       if(pos.z>6){ pos.z=6; if(vel.z>0) vel.z*=-REST; }
       if(pos.z<lavaExitPad.z-10){ pos.z=lavaExitPad.z-10; if(vel.z<0) vel.z*=-REST; }
+    } else if(level==='maze'){
+      mazeResolveCollisions();
+    } else if(level==='race'){ /* road rules handle straying */
     } else { /* nautilus: square floor bounds */
       if(pos.x> SP_BOUND){pos.x= SP_BOUND; if(vel.x>0)vel.x=-vel.x*REST;}
       if(pos.x<-SP_BOUND){pos.x=-SP_BOUND; if(vel.x<0)vel.x=-vel.x*REST;}
@@ -5063,6 +6014,179 @@
       }
     } else if(level==='viper'&&viper){
       stepViper(dt);
+    } else if(level==='maze'){
+      stepMaze(dt);
+
+    } else if(level==='race'){
+      miniEl.style.display='block';
+      drawMinimap();
+      if(hitWhyT>0){ hitWhyT-=dt; if(hitWhyT<=0)hitWhyEl.classList.remove('show'); }
+      if(raceState==='count'){
+        var prev=raceT;
+        raceT-=dt;
+        if(prev>3.0&&raceT<=3.0)showCount('3',false);
+        else if(prev>2.0&&raceT<=2.0)showCount('2',false);
+        else if(prev>1.0&&raceT<=1.0)showCount('1',false);
+        else if(prev>0&&raceT<=0){
+          showCount('GO!',true);
+          raceState='run'; raceT=0;
+          fovPulse=0.3; shakeT=0.15; shakeX=0; shakeZ=-1;
+        }
+        input.x=0; input.y=0; vel.x*=0.8; vel.z*=0.8;
+      } else if(raceState==='run'||raceState==='done'){
+        raceT+=dt;
+        for(i=0;i<rivals.length;i++)raceAIStep(rivals[i],dt);
+        var pr=raceProject(pos.x,pos.z,raceS);
+        raceS=pr.s;
+        var pw=raceAt(raceS).w;
+        var fellOff=(Math.abs(pr.off)>pw+0.6&&grounded);
+        var inHole=(raceOnGap(raceS,pr.off)&&pos.y<RADIUS+0.6);
+        if((fellOff||inHole)&&raceState==='run'&&iframes<=0){
+          var bs=Math.max(2,raceS-6), guard=0;
+          while(guard++<40){
+            var bp2=raceAt(bs);
+            var clash=raceOnGap(bs,0);
+            for(var hj=0;hj<raceHazards.length&&!clash;hj++){
+              if(Math.hypot(bp2.x-raceHazards[hj].x,bp2.z-raceHazards[hj].z)<raceHazards[hj].len+2)clash=true;
+            }
+            for(var sj=0;sj<raceSwings.length&&!clash;sj++){
+              if(Math.abs(bs-raceSwings[sj].s)<5)clash=true;
+            }
+            if(!clash)break;
+            bs=Math.max(2,bs-4);
+          }
+          var back=raceAt(bs);
+          pos.set(back.x,RADIUS,back.z);
+          vel.set(0,0,0);
+          raceS=bs;
+          raceRecov++;
+          takeHit(pos.x,pos.z);
+          sayHit(inHole?'FELL IN THE GAP':'OFF THE TRACK');
+          spawnShock(pos.x,pos.z);
+        }
+        for(i=0;i<RACE_BOOSTS.length;i++){
+          var bp=RACE_BOOSTS[i], bpt=raceAt(bp[0]);
+          var bnx=-bpt.tz,bnz=bpt.tx;
+          var bx=bpt.x+bnx*bp[1], bz=bpt.z+bnz*bp[1];
+          if(Math.hypot(pos.x-bx,pos.z-bz)<2.2&&boostT<=0){
+            boostT=BOOST_TIME;
+            outline.material.color.setHex(BLUE);
+            tone(660,0.1,'square',0.06,990);
+          }
+        }
+        for(i=0;i<raceHazards.length;i++){
+          var hz=raceHazards[i];
+          hz.a+=hz.spd*dt;
+          hz.mesh.rotation.y=hz.a;
+          var hdx=pos.x-hz.x, hdz=pos.z-hz.z;
+          var along=hdx*Math.cos(hz.a)+hdz*Math.sin(hz.a);
+          var perp=-hdx*Math.sin(hz.a)+hdz*Math.cos(hz.a);
+          if(iframes<=0&&pos.y<2.1&&Math.abs(along)<hz.len&&Math.abs(perp)<0.9){
+            takeHit(hz.x,hz.z); sayHit('SPINNER');
+          }
+          for(var rj=0;rj<rivals.length;rj++){
+            var rv2=rivals[rj];
+            if(rv2.fin)continue;
+            var rdx=rv2.x-hz.x, rdz=rv2.z-hz.z;
+            var ra=rdx*Math.cos(hz.a)+rdz*Math.sin(hz.a);
+            var rp2=-rdx*Math.sin(hz.a)+rdz*Math.cos(hz.a);
+            if(Math.abs(ra)<hz.len&&Math.abs(rp2)<0.9){
+              rv2.vx*=-0.3; rv2.vz*=-0.3; rv2.recov++;
+            }
+          }
+        }
+        for(i=0;i<raceSwings.length;i++){
+          var sw=raceSwings[i];
+          sw.a+=sw.spd*dt;
+          var sp2=raceAt(sw.s);
+          var snx=-sp2.tz, snz=sp2.tx;
+          var soff=Math.sin(sw.a)*sw.amp;
+          var sx=sp2.x+snx*soff, sz=sp2.z+snz*soff;
+          sw.mesh.position.set(sx,1.4+Math.abs(Math.cos(sw.a))*0.3,sz);
+          sw.mesh.rotation.y=sw.a*0.6;
+          sw.shadow.position.set(sx+SDX*1.4,0.03,sz+SDZ*1.4);
+          if(iframes<=0&&pos.y<2.6&&Math.hypot(pos.x-sx,pos.z-sz)<RADIUS+1.4){
+            takeHit(sx,sz); sayHit('SWINGER');
+          }
+          for(var rk=0;rk<rivals.length;rk++){
+            var rv3=rivals[rk];
+            if(rv3.fin)continue;
+            if(Math.hypot(rv3.x-sx,rv3.z-sz)<RADIUS+1.4){
+              rv3.vx*=-0.35; rv3.vz*=-0.35; rv3.recov++;
+            }
+          }
+        }
+        bumpCool=Math.max(0,bumpCool-dt);
+        (function(){
+          var balls=[playerProxy];
+          for(var bi=0;bi<rivals.length;bi++)if(!rivals[bi].fin)balls.push(rivals[bi]);
+          for(var a=0;a<balls.length;a++)for(var b=a+1;b<balls.length;b++){
+            var A=balls[a], B=balls[b];
+            var dx=B.x-A.x, dz=B.z-A.z;
+            var dd=Math.hypot(dx,dz);
+            var minD=RADIUS*2;
+            if(dd<minD&&dd>0.001){
+              var nx2=dx/dd, nz2=dz/dd;
+              var pen=(minD-dd)/2;
+              A.x-=nx2*pen; A.z-=nz2*pen;
+              B.x+=nx2*pen; B.z+=nz2*pen;
+              var rvn=(B.vx-A.vx)*nx2+(B.vz-A.vz)*nz2;
+              if(rvn<0){
+                var imp=-1.6*rvn/2;
+                A.vx-=imp*nx2; A.vz-=imp*nz2;
+                B.vx+=imp*nx2; B.vz+=imp*nz2;
+                var isP=(A===playerProxy||B===playerProxy);
+                if(isP&&bumpCool<=0&&-rvn>3){
+                  bumpCool=0.35;
+                  thudSfx();
+                  shakeT=0.1;
+                  shakeX=nx2*(A===playerProxy?-1:1);
+                  shakeZ=nz2*(A===playerProxy?-1:1);
+                }
+              }
+            }
+          }
+        })();
+        if(raceState==='run'){
+          var ahead=0;
+          for(i=0;i<rivals.length;i++){
+            var rp3=rivals[i];
+            var rs=rp3.fin!==null?RACE_LEN+1:rp3.s;
+            if(rs>raceS)ahead++;
+          }
+          racePlace=ahead+1;
+          placeHudEl.textContent='P'+racePlace+' / 4';
+        }
+        if(raceState==='run'&&raceS>=RACE_LEN-4){
+          raceState='done';
+          raceFin=raceT;
+          var finished=0;
+          for(i=0;i<rivals.length;i++)if(rivals[i].fin!==null)finished++;
+          racePlace=finished+1;
+          placeHudEl.textContent='FINISH \u00B7 P'+racePlace;
+          var prize=[600,300,150,50][Math.min(3,racePlace-1)];
+          coinScore+=prize;
+          if(racePlace===1)awardBadge('racer');
+          toastQueue.push(racePlace===1?'WON THE CIRCUIT +600':('P'+racePlace+' \u00B7 +'+prize));
+          showNextToast();
+          badgeSfx(); fovPulse=0.35; updateHUD();
+          spawnShock(pos.x,pos.z);
+          for(var ci=0;ci<12;ci++)(function(k){
+            setTimeout(function(){
+              if(state!=='play')return;
+              combo++;
+              flyCoin(pos.x+(Math.random()-0.5)*3,2,pos.z+(Math.random()-0.5)*3,5);
+              coinBlip(); updateHUD();
+            },k*70);
+          })(ci);
+        }
+        racePortal.rotation.y+=1.4*dt;
+        racePortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+        if(raceState==='done'
+           &&Math.hypot(pos.x-racePortal.position.x,pos.z-racePortal.position.z)<2.2){
+          returnToHub();
+        }
+      }
     } else if(bossHudEl.classList.contains('on')){
       bossHudEl.classList.remove('on');
     }
@@ -5184,6 +6308,32 @@
          &&Math.hypot(pos.x-hubPortal.position.x,pos.z-hubPortal.position.z)<2.2
          &&Math.abs(pos.y-hubPortal.position.y)<1.7){
         enterHubDestination();
+      }
+      /* Gate Maze debug portal (hub rest only — not in sequence) */
+      mazeDebugPortal.visible=isHubRest();
+      mazeDebugShadow.visible=isHubRest();
+      if(isHubRest()){
+        mazeDebugPortal.rotation.y+=1.4*dt;
+        mazeDebugPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+        if(state==='play'
+           &&Math.hypot(pos.x-mazeDebugPortal.position.x,pos.z-mazeDebugPortal.position.z)<2.2
+           &&Math.abs(pos.y-mazeDebugPortal.position.y)<1.8){
+          enterMaze();
+        }
+      }
+
+      /* THE CIRCUIT debug portal (hub rest only — not in sequence) */
+      raceDebugPortal.visible=isHubRest();
+      raceDebugShadow.visible=isHubRest();
+      raceDebugLabel.visible=isHubRest();
+      if(isHubRest()){
+        raceDebugPortal.rotation.y+=1.4*dt;
+        raceDebugPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
+        if(state==='play'
+           &&Math.hypot(pos.x-raceDebugPortal.position.x,pos.z-raceDebugPortal.position.z)<2.2
+           &&Math.abs(pos.y-raceDebugPortal.position.y)<1.8){
+          enterRace();
+        }
       }
       /* after the giant falls, its portal leads back to the hub */
       if(bossExitActive){
@@ -5889,7 +7039,7 @@
 
     if(level==='spiral') camTarget.set(pos.x,pos.y*0.7,pos.z);
     else camTarget.set(pos.x,0,pos.z);
-    camera.position.lerp(camTarget.clone().add(CAM_OFFSET),0.08);
+    camera.position.lerp(camTarget.clone().add(level==='maze'?MAZE_CAM_OFFSET:CAM_OFFSET),0.08);
     if(!reducedMotion){
       if(shakeT>0){ /* directional kick, decaying wobble */
         shakeT-=dt;
