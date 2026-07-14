@@ -1048,15 +1048,35 @@
       m.position.set(p.x,0.02,p.z);
       m.rotation.y=Math.atan2(p.tx,p.tz);
     });
-    /* boost pads */
+    /* boost pads: blue strip + white chevrons pointing along the track */
+    var boostChevGeo=(function(){
+      var sh=new THREE.Shape();
+      sh.moveTo(0,-0.58);          /* tip → +Z after rotX(-PI/2) = forward */
+      sh.lineTo(1.05,0.48);
+      sh.lineTo(0.52,0.48);
+      sh.lineTo(0,-0.12);
+      sh.lineTo(-0.52,0.48);
+      sh.lineTo(-1.05,0.48);
+      sh.closePath();
+      return new THREE.ShapeGeometry(sh);
+    })();
+    var boostChevMat=new THREE.MeshBasicMaterial({color:0xffffff,side:THREE.DoubleSide});
     RACE_BOOSTS.forEach(function(bp){
       var p=raceAt(bp[0]);
       var nx=-p.tz,nz=p.tx;
-      var m=raceReg(new THREE.Mesh(new THREE.PlaneGeometry(3.4,4.4),
-        new THREE.MeshBasicMaterial({color:BLUE,transparent:true,opacity:0.75})));
-      m.rotation.x=-Math.PI/2;
-      m.rotation.z=Math.atan2(p.tx,p.tz);
-      m.position.set(p.x+nx*bp[1],0.08,p.z+nz*bp[1]);
+      var g=raceReg(new THREE.Group());
+      g.position.set(p.x+nx*bp[1],0.08,p.z+nz*bp[1]);
+      g.rotation.y=Math.atan2(p.tx,p.tz); /* group +Z = track forward */
+      var pad=new THREE.Mesh(new THREE.PlaneGeometry(3.4,4.4),
+        new THREE.MeshBasicMaterial({color:BLUE,transparent:true,opacity:0.75,side:THREE.DoubleSide}));
+      pad.rotation.x=-Math.PI/2;
+      g.add(pad);
+      for(var k=0;k<3;k++){
+        var ch=new THREE.Mesh(boostChevGeo,boostChevMat);
+        ch.rotation.x=-Math.PI/2;
+        ch.position.set(0,0.02,-1.25+k*1.2);
+        g.add(ch);
+      }
     });
   })();
   var raceHazards=[];
@@ -1066,7 +1086,7 @@
     var m=raceReg(new THREE.Mesh(new THREE.BoxGeometry(h[2]*2,1.3,0.8),
       new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
     m.position.set(p.x+nx*h[1],0.9,p.z+nz*h[1]);
-    raceHazards.push({mesh:m,x:m.position.x,z:m.position.z,len:h[2],spd:h[3],a:Math.random()*Math.PI});
+    raceHazards.push({mesh:m,x:m.position.x,z:m.position.z,s:h[0],len:h[2],spd:h[3],a:Math.random()*Math.PI});
   });
   (function(){
     RACE_GAPS.forEach(function(g){
@@ -1160,7 +1180,7 @@
         new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.5,depthWrite:false})));
       sh.rotation.x=-Math.PI/2;
       rivals.push({mesh:m,shadow:sh,x:0,z:0,vx:0,vz:0,s:0,lane:0,
-        skill:[0.80,0.88,0.96][i],fin:null,recov:0});
+        skill:[0.94,1.02,1.12][i],fin:null,recov:0,boostT:0,prefLane:0});
     }
   })();
   /* debug hub portal — NOT in raceMeshes (hub rest only, like maze debug) */
@@ -1352,7 +1372,9 @@
       denyT:0, hintT:0, leaveArmed:false, t:MAZE_TIME,
       chestX:ch.x, chestZ:ch.z,
       exitX:ex.x, exitZ:ex.z,
-      startX:st.x, startZ:st.z
+      startX:st.x, startZ:st.z,
+      coinsAtEntry:coinsBanked,
+      coinsEarned:0
     };
 
     /* spawn a cell toward the center so the start portal isn't entered instantly */
@@ -1367,6 +1389,20 @@
   }
   function hideMazeCollapseHud(){
     if(hubPortalHudEl) hubPortalHudEl.classList.remove('on');
+  }
+  function loseMazeRunCoins(){
+    if(!maze) return;
+    coinFlyGen++; /* cancel any in-flight maze flyCoin banks */
+    var fliers=document.querySelectorAll('.coinFly');
+    for(var i=0;i<fliers.length;i++){
+      if(fliers[i].parentNode) fliers[i].parentNode.removeChild(fliers[i]);
+    }
+    var strip=maze.coinsEarned|0;
+    if(strip>0){
+      setCoinsBanked(coinsBanked-strip);
+      toastQueue.push('-'+strip+' GOLD LOST'); showNextToast();
+    }
+    maze.coinsEarned=0;
   }
   function updateMazeCollapseHud(){
     if(!hubPortalHudEl||!maze||maze.done){ hideMazeCollapseHud(); return; }
@@ -1440,6 +1476,7 @@
     if(maze.t<=0){
       toastQueue.push('MAZE COLLAPSED'); showNextToast();
       hideMazeCollapseHud();
+      loseMazeRunCoins();
       failToHub();
       return;
     }
@@ -1508,6 +1545,7 @@
         if(coin.shadow) coin.shadow.visible=false;
         collected++; combo++;
         coinScore+=5*Math.min(combo,12);
+        maze.coinsEarned=(maze.coinsEarned|0)+1;
         flyCoin(coin.x,cy,coin.z); coinBlip(); updateHUD();
       }
     }
@@ -2698,6 +2736,7 @@
   var coinCountEl=document.getElementById('coinCount');
   var coinsBanked=0;
   var coinLifeAt=100; /* next free-life threshold */
+  var coinFlyGen=0; /* bump to cancel in-flight flyCoin banks */
   var projV=new THREE.Vector3();
   function grantCoinLife(){
     hearts++;
@@ -2705,8 +2744,13 @@
     heartSfx();
     toastQueue.push('FREE LIFE'); showNextToast();
   }
+  function setCoinsBanked(n){
+    coinsBanked=Math.max(0,n|0);
+    coinCountEl.innerHTML='&times; '+String(coinsBanked).padStart(2,'0');
+  }
   function flyCoin(x,y,z,value){
     value=value||1;
+    var gen=coinFlyGen;
     projV.set(x,y,z).project(camera);
     var sx=(projV.x*0.5+0.5)*window.innerWidth;
     var sy=(-projV.y*0.5+0.5)*window.innerHeight;
@@ -2723,6 +2767,7 @@
     function bank(){
       if(done)return; done=true;
       if(el.parentNode)el.parentNode.removeChild(el);
+      if(gen!==coinFlyGen)return; /* cancelled (e.g. maze collapse) */
       coinsBanked+=value;
       coinCountEl.innerHTML='&times; '+String(coinsBanked).padStart(2,'0');
       coinsEl.classList.remove('bump');
@@ -4438,7 +4483,7 @@
     raceS=2; raceFin=null; raceRecov=0; racePlace=1; bumpCool=0;
     for(var i=0;i<3;i++){
       var rv=rivals[i], lo=raceLaneOffset(lanes[i]);
-      rv.lane=lo; rv.s=2; rv.fin=null; rv.recov=0;
+      rv.lane=lo; rv.prefLane=lo; rv.s=2; rv.fin=null; rv.recov=0; rv.boostT=0; rv._gapHits=0;
       rv.x=p0.x+n0x*lo; rv.z=p0.z+n0z*lo; rv.vx=0; rv.vz=0;
       rv.mesh.position.set(rv.x,RADIUS,rv.z);
       rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
@@ -4459,53 +4504,212 @@
   }
   function raceAIStep(rv,dt){
     if(rv.fin)return;
+    if(rv.boostT>0)rv.boostT=Math.max(0,rv.boostT-dt);
     var pr=raceProject(rv.x,rv.z,rv.s);
     rv.s=pr.s;
-    var look=10;
-    var tgt=raceAt(rv.s+look);
-    var off=rv.lane, lim=tgt.w-1.2;
+    var spNow=Math.hypot(rv.vx,rv.vz);
+    var look=12+rv.skill*6;
+    var tgt=raceAt(Math.min(RACE_LEN-0.5,rv.s+look));
+    var lim=Math.max(1.2,tgt.w-1.15);
+    var off=rv.lane;
+    var gapThreat=false;
+    var gapSafe=null; /* forced lateral when a hole is ahead */
+
+    /* rubber band: stay competitive if the player pulls away */
+    var gap=raceS-rv.s; /* + = player ahead */
+    var catchUp=1;
+    if(gap>6)catchUp=1+Math.min(0.42,(gap-6)*0.014);
+    else if(gap<-22)catchUp=0.90; /* ease only if way out front */
+
+    /* racing line desire: boosts ahead, else preferred lane / center */
+    var seekBoost=null;
+    for(var bi=0;bi<RACE_BOOSTS.length;bi++){
+      var bs=RACE_BOOSTS[bi][0];
+      if(bs>=rv.s-1&&bs<=rv.s+look+10){ seekBoost=RACE_BOOSTS[bi]; break; }
+    }
+    if(seekBoost&&rv.boostT<=0.15)off=seekBoost[1];
+    else {
+      var home=Math.abs(rv.prefLane)<1.5?0:rv.prefLane*0.55;
+      off=off+(home-off)*Math.min(1,dt*1.8);
+    }
+
+    /* gaps OVERRIDE boost hunting — pick a corridor that actually fits */
     for(var gi=0;gi<RACE_GAPS.length;gi++){
       var g=RACE_GAPS[gi];
-      if(rv.s+look>=g[0]-10&&rv.s+look<=g[1]+2&&Math.abs(off-g[2])<g[3]+1.6){
-        var L=g[2]-g[3]-2.0, Rr=g[2]+g[3]+2.0;
-        var okL=L>=-lim, okR=Rr<=lim;
-        if(okL&&okR)off=(Math.abs(L-off)<Math.abs(Rr-off))?L:Rr;
-        else if(okL)off=L; else off=Rr;
+      if(rv.s>g[1]+1)continue;
+      if(rv.s+look<g[0]-14)continue;
+      gapThreat=true;
+      var L=g[2]-g[3]-2.4, Rr=g[2]+g[3]+2.4;
+      /* use width at the hole, not far look-ahead */
+      var gw=raceAt(Math.min(g[1],Math.max(g[0],rv.s))).w;
+      var glim=Math.max(1.2,gw-1.15);
+      var okL=L>=-glim, okR=Rr<=glim;
+      var danger=Math.abs(off-g[2])<g[3]+1.8;
+      if(danger||rv.s+8>=g[0]){
+        if(okL&&okR){
+          if(seekBoost){
+            var sb=seekBoost[1];
+            /* only keep the boost side if it clears the hole */
+            var boostL=Math.abs(sb-L)<=Math.abs(sb-Rr);
+            var pick=boostL?L:Rr;
+            if(Math.abs(pick-g[2])>=g[3]+1.6)off=pick;
+            else off=(Math.abs(L-off)<=Math.abs(Rr-off))?L:Rr;
+          } else off=(Math.abs(L-off)<=Math.abs(Rr-off))?L:Rr;
+        } else if(okL)off=L;
+        else if(okR)off=Rr;
+        else off=(Math.abs(L)<Math.abs(Rr)?L:Rr); /* rare: clamp later */
+        gapSafe=off;
       }
     }
+
+    /* swingers: steer clear of where the block will be when we arrive */
+    for(var si=0;si<raceSwings.length;si++){
+      var sw=raceSwings[si];
+      if(sw.s<rv.s-2||sw.s>rv.s+16)continue;
+      var eta=Math.max(0,(sw.s-rv.s)/Math.max(spNow,9));
+      var fut=Math.sin(sw.a+sw.spd*eta)*sw.amp;
+      if(Math.abs(off-fut)<3.4){
+        var escape=fut>=0?fut-3.8:fut+3.8;
+        off=Math.max(-lim,Math.min(lim,escape));
+      }
+    }
+
+    /* spinners: hug the outside while the bar sweeps the middle */
+    for(var hi=0;hi<raceHazards.length;hi++){
+      var hz=raceHazards[hi];
+      if(hz.s<rv.s-1||hz.s>rv.s+14)continue;
+      var hEta=Math.max(0,(hz.s-rv.s)/Math.max(spNow,9));
+      var hAng=hz.a+hz.spd*hEta;
+      var tp=raceAt(hz.s);
+      var align=Math.abs(Math.cos(hAng)*tp.tx+Math.sin(hAng)*tp.tz);
+      if(align>0.55&&Math.abs(off)<hz.len*0.55){
+        off=(off>=0?1:-1)*Math.min(lim,hz.len*0.35+2.4);
+      }
+    }
+
+    /* overtake: if blocked ahead, change lanes instead of ramming */
+    function foeS(f){ return f===playerProxy?raceS:(f.s||0); }
+    function foeOff(f){
+      if(f===playerProxy)return raceProject(pos.x,pos.z,raceS).off;
+      return raceProject(f.x,f.z,f.s).off;
+    }
+    var pack=[{proxy:playerProxy}];
+    for(var fi=0;fi<rivals.length;fi++)if(rivals[fi]!==rv&&!rivals[fi].fin)pack.push({proxy:rivals[fi]});
+    if(!gapThreat){ /* don't lane-change into a hole while overtakes fire */
+      for(var fj=0;fj<pack.length;fj++){
+        var fo=pack[fj].proxy;
+        var fs=foeS(fo), dS=fs-rv.s;
+        if(dS>0.5&&dS<11){
+          var fo2=foeOff(fo);
+          if(Math.abs(fo2-off)<2.6){
+            var side=fo2>=0?-1:1;
+            var tryOff=fo2+side*3.1;
+            if(Math.abs(tryOff)<=lim)off=tryOff;
+            else off=fo2-side*3.1;
+          }
+        }
+      }
+    }
+
+    if(gapSafe!==null)off=gapSafe; /* final authority while a hole is live */
     off=Math.max(-lim,Math.min(lim,off));
+    /* snap lanes near holes — slow lerp was looping recoveries forever */
+    var laneRate=gapThreat?14:3.2;
+    rv.lane+=(off-rv.lane)*Math.min(1,dt*laneRate);
+    if(gapThreat&&Math.abs(rv.lane-off)>0.15)rv.lane=off;
+    off=rv.lane;
+
     var nx=-tgt.tz, nz=tgt.tx;
     var ix=(tgt.x+nx*off)-rv.x, iz=(tgt.z+nz*off)-rv.z;
     var m=Math.hypot(ix,iz)||1; ix/=m; iz/=m;
-    var p1=raceAt(rv.s+6), p2=raceAt(rv.s+18);
-    var bend=Math.abs(Math.atan2(p2.tz,p2.tx)-Math.atan2(p1.tz,p1.tx));
-    var brake=Math.max(0.78,1-bend*0.5);
-    var agX=0, agZ=0;
-    var foes=[{x:pos.x,z:pos.z}];
-    for(var fi=0;fi<rivals.length;fi++)if(rivals[fi]!==rv)foes.push({x:rivals[fi].x,z:rivals[fi].z});
-    for(var fj=0;fj<foes.length;fj++){
-      var fdx=foes[fj].x-rv.x, fdz=foes[fj].z-rv.z;
-      var fd=Math.hypot(fdx,fdz);
-      if(fd<7&&fd>0.1){
-        var w=(1-fd/7)*rv.skill*0.55;
-        agX+=fdx/fd*w; agZ+=fdz/fd*w;
+
+    /* mild bumper lean only when side-by-side (not head-on into leaders) */
+    for(var fj2=0;fj2<pack.length;fj2++){
+      var fo3=pack[fj2].proxy;
+      var fdx=fo3.x-rv.x, fdz=fo3.z-rv.z, fd=Math.hypot(fdx,fdz);
+      if(fd<5.5&&fd>0.2&&Math.abs(foeS(fo3)-rv.s)<3.5){
+        var w=(1-fd/5.5)*0.22*rv.skill;
+        ix+=fdx/fd*w; iz+=fdz/fd*w;
       }
     }
-    ix+=agX; iz+=agZ;
     var im2=Math.hypot(ix,iz)||1; ix/=im2; iz/=im2;
-    var acc=ACCEL*(0.92+rv.skill*0.16)*brake;
+
+    /* corners: lighter braking so they carry speed like a human on the racing line */
+    var p1=raceAt(Math.min(RACE_LEN,rv.s+5)), p2=raceAt(Math.min(RACE_LEN,rv.s+16));
+    var bend=Math.abs(Math.atan2(p2.tz,p2.tx)-Math.atan2(p1.tz,p1.tx));
+    if(bend>Math.PI)bend=Math.PI*2-bend;
+    var brake=Math.max(0.86,1-bend*0.32);
+
+    /* ramp kick: player launches — AI gets a surge so the race stays fair */
+    var rampBoost=1;
+    for(var ri=0;ri<RACE_RAMPS.length;ri++){
+      if(Math.abs(rv.s-RACE_RAMPS[ri][0])<RACE_RAMPS[ri][1]+1.5){rampBoost=1.12;break;}
+    }
+
+    var bMul=rv.boostT>0?BOOST_MULT:1;
+    var pace=(1.0+rv.skill*0.1)*brake*bMul*catchUp*rampBoost;
+    var acc=ACCEL*pace;
     rv.vx+=ix*acc*dt; rv.vz+=iz*acc*dt;
     var d=Math.max(0,1-FRICTION*dt); rv.vx*=d; rv.vz*=d;
-    var sp=Math.hypot(rv.vx,rv.vz), mx=MAX_SPEED*(0.96+rv.skill*0.06)*brake;
+    var sp=Math.hypot(rv.vx,rv.vz), mx=MAX_SPEED*pace;
     if(sp>mx){rv.vx*=mx/sp;rv.vz*=mx/sp;}
     rv.x+=rv.vx*dt; rv.z+=rv.vz*dt;
+
+    /* grab boost pads */
+    if(rv.boostT<=0){
+      for(var bj=0;bj<RACE_BOOSTS.length;bj++){
+        var bp=RACE_BOOSTS[bj], bpt=raceAt(bp[0]);
+        var bnx=-bpt.tz,bnz=bpt.tx;
+        var bx=bpt.x+bnx*bp[1], bz=bpt.z+bnz*bp[1];
+        if(Math.hypot(rv.x-bx,rv.z-bz)<2.4){rv.boostT=BOOST_TIME;break;}
+      }
+    }
+
     var pr2=raceProject(rv.x,rv.z,rv.s);
     var pAt=raceAt(pr2.s);
-    if(Math.abs(pr2.off)>pAt.w||raceOnGap(pr2.s,pr2.off)){
+    if(raceOnGap(pr2.s,pr2.off)||Math.abs(pr2.off)>pAt.w+0.35){
       rv.recov++;
-      rv.x=pAt.x; rv.z=pAt.z; rv.vx*=0.25; rv.vz*=0.25;
+      /* find the hole we fell in (if any) and rejoin on a SAFE side past it */
+      var fellGap=null;
+      for(var gj=0;gj<RACE_GAPS.length;gj++){
+        var gg=RACE_GAPS[gj];
+        if(pr2.s>=gg[0]-2&&pr2.s<=gg[1]+2){fellGap=gg;break;}
+      }
+      var backS=Math.max(2,pr2.s-5), safeOff=0, guard=0;
+      if(fellGap){
+        backS=Math.max(2,fellGap[0]-6);
+        var fL=fellGap[2]-fellGap[3]-2.4, fR=fellGap[2]+fellGap[3]+2.4;
+        var fw=raceAt(fellGap[0]).w, flim=Math.max(1.2,fw-1.15);
+        var fOkL=fL>=-flim, fOkR=fR<=flim;
+        if(fOkL&&fOkR)safeOff=(Math.abs(fL)<=Math.abs(fR))?fL:fR;
+        else if(fOkR)safeOff=fR; else if(fOkL)safeOff=fL;
+        /* if we've looped this hole, skip past it entirely */
+        rv._gapHits=(rv._gapHits||0)+1;
+        if(rv._gapHits>=3){ backS=fellGap[1]+3; rv._gapHits=0; }
+      } else {
+        while(guard++<30){
+          if(!raceOnGap(backS,0))break;
+          backS=Math.max(2,backS-3);
+        }
+      }
+      var safe=raceAt(backS);
+      var snx=-safe.tz, snz=safe.tx;
+      rv.x=safe.x+snx*safeOff; rv.z=safe.z+snz*safeOff; rv.s=backS;
+      rv.lane=safeOff;
+      /* push forward along the track so we don't drift straight back in */
+      var kick=Math.max(8,Math.hypot(rv.vx,rv.vz)*0.55);
+      rv.vx=safe.tx*kick; rv.vz=safe.tz*kick;
+    } else if(Math.abs(pr2.off)>pAt.w*0.92){
+      /* edge scrape: nudge inward, keep most speed */
+      var pull=pr2.off>0?-0.35:0.35;
+      rv.x+=(-pAt.tz)*pull; rv.z+=(pAt.tx)*pull;
+      rv.vx*=0.92; rv.vz*=0.92;
+      rv.s=pr2.s;
+      rv._gapHits=0;
+    } else {
+      rv.s=pr2.s;
+      if(!gapThreat)rv._gapHits=0;
     }
-    rv.s=pr2.s;
     if(rv.s>=RACE_LEN-4&&!rv.fin)rv.fin=raceT;
     rv.mesh.position.set(rv.x,RADIUS,rv.z);
     rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
@@ -6091,7 +6295,12 @@
             var ra=rdx*Math.cos(hz.a)+rdz*Math.sin(hz.a);
             var rp2=-rdx*Math.sin(hz.a)+rdz*Math.cos(hz.a);
             if(Math.abs(ra)<hz.len&&Math.abs(rp2)<0.9){
-              rv2.vx*=-0.3; rv2.vz*=-0.3; rv2.recov++;
+              /* shove aside instead of a full stall — they can recover mid-fight */
+              var hx=Math.cos(hz.a+Math.PI/2), hz2=Math.sin(hz.a+Math.PI/2);
+              var side=(ra>=0?1:-1);
+              rv2.vx=rv2.vx*0.55+hx*side*6;
+              rv2.vz=rv2.vz*0.55+hz2*side*6;
+              rv2.recov++;
             }
           }
         }
@@ -6112,7 +6321,10 @@
             var rv3=rivals[rk];
             if(rv3.fin)continue;
             if(Math.hypot(rv3.x-sx,rv3.z-sz)<RADIUS+1.4){
-              rv3.vx*=-0.35; rv3.vz*=-0.35; rv3.recov++;
+              var awayX=rv3.x-sx, awayZ=rv3.z-sz, ad=Math.hypot(awayX,awayZ)||1;
+              rv3.vx=rv3.vx*0.5+awayX/ad*8;
+              rv3.vz=rv3.vz*0.5+awayZ/ad*8;
+              rv3.recov++;
             }
           }
         }
