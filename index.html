@@ -104,6 +104,9 @@
     left:0; right:0; z-index:6; pointer-events:none; display:none; text-align:center;
     font-size:10px; font-weight:600; letter-spacing:0.34em; text-indent:0.34em; color:#111; }
   #hubPortalHud.on { display:block; }
+  #hubPortalHud.collapse { color:#e8262a; letter-spacing:0.42em; animation:collapsePulse 0.55s ease-in-out infinite; }
+  @keyframes collapsePulse { 0%,100% { opacity:0.55; } 50% { opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { #hubPortalHud.collapse { animation:none; opacity:0.9; } }
   #knob {
     position:absolute; left:50%; top:50%;
     width:52px; height:52px; border-radius:50%; background:#111;
@@ -382,7 +385,7 @@
   <div id="finalHigh" class="hidden"></div>
   <div id="finalScore">SCORE 000 &middot; BEST 000</div>
   <div id="finalTime">TIME TIL DEATH &middot; 0:00</div>
-  <div id="badgeLabel">BADGES 0/16</div>
+  <div id="badgeLabel">BADGES 0/18</div>
   <div id="badgeRow"></div>
   <div class="board" id="overBoard">
     <h2>TOP SCORES</h2>
@@ -402,7 +405,7 @@
 <div id="profileOverlay" class="overlay hidden">
   <h1 id="profileName">PLAYER</h1>
   <div id="profileScore">SCORE 000</div>
-  <div id="profileBadgeLabel">BADGES 0/16</div>
+  <div id="profileBadgeLabel">BADGES 0/18</div>
   <div id="profileBadgeRow"></div>
   <div id="profileHint">TAP OUTSIDE TO CLOSE</div>
   <div id="profileClose" class="cta">CLOSE</div>
@@ -901,6 +904,7 @@
   /* ============================ GATE MAZE ============================ */
   /* Pay gold gates, open the center chest for MAGNET, escape the beacon. */
   var maze=null;
+  var mazeHubCool=0; /* block re-entry via hub debug portal right after leaving */
   var MAZE_CELL=2.4, MAZE_WALL_H=2.35, MAZE_HALF_I=16;
   var MAZE_MAGNET_R=12, MAZE_MAGNET_PULL=28;
   var MAZE_TIME=90;
@@ -968,6 +972,93 @@
     var wall=mazeReg(new THREE.Mesh(mazeWallGeo,mazeWallMat));
     wall.add(new THREE.LineSegments(mazeWallEdgeGeo,new THREE.LineBasicMaterial({color:0xffffff})));
     mazeWallPool.push(wall);
+  }
+  /* gate cost numerals (ink on both faces) */
+  function makeMazeCostTex(n){
+    var c=document.createElement('canvas');
+    c.width=c.height=64;
+    var ctx=c.getContext('2d');
+    ctx.clearRect(0,0,64,64);
+    ctx.fillStyle='#111111';
+    ctx.font='bold 44px Helvetica Neue,Arial,sans-serif';
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText(String(n),32,34);
+    var t=new THREE.CanvasTexture(c);
+    t.needsUpdate=true;
+    return t;
+  }
+  var mazeCostTex={2:makeMazeCostTex(2),4:makeMazeCostTex(4),8:makeMazeCostTex(8)};
+  function attachGateCostLabels(gp){
+    if(gp.costLabels){
+      for(var i=0;i<gp.costLabels.length;i++) gp.mesh.remove(gp.costLabels[i]);
+    }
+    gp.costLabels=[];
+    var tex=mazeCostTex[gp.cost]||mazeCostTex[4];
+    var mat=new THREE.MeshBasicMaterial({map:tex,transparent:true,depthWrite:false,side:THREE.DoubleSide});
+    var plane=new THREE.PlaneGeometry(0.55,0.55);
+    var a=new THREE.Mesh(plane,mat);
+    var b=new THREE.Mesh(plane,mat.clone());
+    if(gp.axis==='x'){ /* thin in X — faces look along ±X */
+      a.position.set(0.16,0.05,0); a.rotation.y=Math.PI/2;
+      b.position.set(-0.16,0.05,0); b.rotation.y=-Math.PI/2;
+    } else {
+      a.position.set(0,0.05,0.16);
+      b.position.set(0,0.05,-0.16); b.rotation.y=Math.PI;
+    }
+    gp.mesh.add(a); gp.mesh.add(b);
+    gp.costLabels=[a,b];
+  }
+  /* landmark props: gold plaza ring, shrine, crossroads mark */
+  var mazeLandmarkPool=[];
+  (function(){
+    for(var i=0;i<3;i++){
+      var g=new THREE.Group();
+      g.visible=false;
+      scene.add(g); mazeMeshes.push(g);
+      mazeLandmarkPool.push(g);
+    }
+  })();
+  function buildLandmarkMesh(kind){
+    var g=new THREE.Group();
+    if(kind==='gold'){
+      var ring=new THREE.Mesh(new THREE.RingGeometry(MAZE_CELL*0.9,MAZE_CELL*1.35,32),
+        new THREE.MeshBasicMaterial({color:GOLD,transparent:true,opacity:0.55,side:THREE.DoubleSide}));
+      ring.rotation.x=-Math.PI/2; ring.position.y=0.04;
+      g.add(ring);
+      var disc=new THREE.Mesh(new THREE.CircleGeometry(MAZE_CELL*0.55,24),
+        new THREE.MeshBasicMaterial({color:GOLD,transparent:true,opacity:0.35,side:THREE.DoubleSide}));
+      disc.rotation.x=-Math.PI/2; disc.position.y=0.03;
+      g.add(disc);
+    } else if(kind==='shrine'){
+      var pillar=new THREE.Mesh(new THREE.BoxGeometry(0.55,2.4,0.55),
+        new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap}));
+      pillar.position.y=1.2;
+      pillar.add(new THREE.Mesh(new THREE.BoxGeometry(0.62,2.5,0.62),
+        new THREE.MeshBasicMaterial({color:0xffffff,side:THREE.BackSide})));
+      g.add(pillar);
+      var cap=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.18,0.9),
+        new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
+      cap.position.y=2.45;
+      g.add(cap);
+      var base=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.85,0.2,16),
+        new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap}));
+      base.position.y=0.1;
+      g.add(base);
+    } else { /* crossroads */
+      var xr=new THREE.Mesh(new THREE.RingGeometry(MAZE_CELL*1.6,MAZE_CELL*1.85,40),
+        new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.35,side:THREE.DoubleSide}));
+      xr.rotation.x=-Math.PI/2; xr.position.y=0.04;
+      g.add(xr);
+      var cross=new THREE.Mesh(new THREE.PlaneGeometry(MAZE_CELL*0.35,MAZE_CELL*3.2),
+        new THREE.MeshBasicMaterial({color:INK,transparent:true,opacity:0.22,side:THREE.DoubleSide}));
+      cross.rotation.x=-Math.PI/2; cross.position.y=0.035;
+      g.add(cross);
+      var cross2=cross.clone();
+      cross2.rotation.z=Math.PI/2;
+      g.add(cross2);
+    }
+    return g;
   }
   /* debug hub portal */
   var mazeDebugPortal=makePortal(-14,14,GOLD);
@@ -1180,7 +1271,7 @@
         new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.5,depthWrite:false})));
       sh.rotation.x=-Math.PI/2;
       rivals.push({mesh:m,shadow:sh,x:0,z:0,vx:0,vz:0,s:0,lane:0,
-        skill:[0.94,1.02,1.12][i],fin:null,recov:0,boostT:0,prefLane:0});
+        skill:[0.94,1.02,1.12][i],fin:null,leaveT:0,recov:0,boostT:0,prefLane:0});
     }
   })();
   /* debug hub portal — NOT in raceMeshes (hub rest only, like maze debug) */
@@ -1213,7 +1304,13 @@
       }
       for(var g=0;g<mazeGatePool.length;g++) mazeGatePool[g].mesh.visible=false;
       for(var w=0;w<mazeWallPool.length;w++) mazeWallPool[w].visible=false;
+      for(var L=0;L<mazeLandmarkPool.length;L++) mazeLandmarkPool[L].visible=false;
     }
+  }
+  function resetMazeWallMat(){
+    mazeWallMat.color.setHex(INK);
+    mazeWallMat.transparent=false;
+    mazeWallMat.opacity=1;
   }
   function clearMazeLive(){
     if(!maze) return;
@@ -1224,11 +1321,22 @@
     for(var g=0;g<mazeGatePool.length;g++){
       mazeGatePool[g].mesh.visible=false; mazeGatePool[g].open=false; mazeGatePool[g].paying=false;
     }
+    for(var L=0;L<mazeLandmarkPool.length;L++){
+      mazeLandmarkPool[L].visible=false;
+      while(mazeLandmarkPool[L].children.length)
+        mazeLandmarkPool[L].remove(mazeLandmarkPool[L].children[0]);
+    }
+    for(var w=0;w<mazeWallPool.length;w++){
+      mazeWallPool[w].position.y=MAZE_WALL_H/2;
+      mazeWallPool[w].userData.baseY=MAZE_WALL_H/2;
+    }
+    resetMazeWallMat();
     mazeChestG.visible=false;
     mazeExitPortal.visible=false;
     mazeStartPortal.visible=false;
     mazeExitBeacon.visible=false;
     hideMazeCollapseHud();
+    if(hubPortalHudEl) hubPortalHudEl.classList.remove('collapse');
     maze=null;
   }
   function mazeIsSolid(r,c){
@@ -1297,21 +1405,25 @@
     clearMazeLive();
     ensureMazeCoins();
 
-    var data=GateMazeLib.buildLevel();
+    var data=GateMazeLib.buildLevel((Date.now()^((Math.random()*1e9)|0))>>>0);
     MAZE_HALF_I=data.HALF;
     var side=data.SIZE*MAZE_CELL;
     mazeFloor.scale.set(side,side,1);
     mazeDotTex.repeat.set(side*0.55,side*0.55);
     mazeFloor.visible=true;
 
+    var liveWalls=[];
     var wi=0;
+    resetMazeWallMat();
     for(var r=0;r<data.SIZE;r++) for(var c=0;c<data.SIZE;c++){
       if(data.grid[r][c]!==1) continue;
       if(wi>=mazeWallPool.length) break;
       var wall=mazeWallPool[wi++];
       var wp=mazeWorld(r,c);
       wall.position.set(wp.x,MAZE_WALL_H/2,wp.z);
+      wall.userData.baseY=MAZE_WALL_H/2;
       wall.visible=true;
+      liveWalls.push(wall);
     }
     for(;wi<mazeWallPool.length;wi++) mazeWallPool[wi].visible=false;
 
@@ -1328,9 +1440,27 @@
       gp.mesh.material.color.setHex(RED);
       gp.mesh.material.opacity=1;
       gp.cost=gd.cost; gp.open=false; gp.paying=false; gp.r=gd.r; gp.c=gd.c; gp.axis=along; gp.anim=0;
+      attachGateCostLabels(gp);
       gates.push(gp);
     }
     for(var gj=data.gates.length;gj<mazeGatePool.length;gj++) mazeGatePool[gj].mesh.visible=false;
+
+    /* landmarks */
+    for(var Li=0;Li<mazeLandmarkPool.length;Li++){
+      var LG=mazeLandmarkPool[Li];
+      while(LG.children.length) LG.remove(LG.children[0]);
+      LG.visible=false;
+    }
+    var landmarks=data.landmarks||[];
+    for(var lj=0;lj<landmarks.length&&lj<mazeLandmarkPool.length;lj++){
+      var ld=landmarks[lj];
+      var host=mazeLandmarkPool[lj];
+      var built=buildLandmarkMesh(ld.kind);
+      while(built.children.length) host.add(built.children[0]);
+      var lw=mazeWorld(ld.r,ld.c);
+      host.position.set(lw.x,0,lw.z);
+      host.visible=true;
+    }
 
     var coins=[];
     for(var ci=0;ci<data.coinCells.length&&ci<mazeCoinsPool.length;ci++){
@@ -1364,20 +1494,34 @@
     mazeExitPortal.visible=false;
 
     var st=mazeWorld(data.start[0],data.start[1]);
-    mazeStartPortal.position.set(st.x,1.7,st.z);
+    /* Hub return portal: mid-maze landmark (never at spawn) */
+    var hubR=ex.x, hubZ=ex.z;
+    var hubPick=null;
+    for(var hk=0;hk<landmarks.length;hk++){
+      if(landmarks[hk].kind==='shrine'){ hubPick=landmarks[hk]; break; }
+    }
+    if(!hubPick&&landmarks.length) hubPick=landmarks[0];
+    if(hubPick){
+      var hw=mazeWorld(hubPick.r,hubPick.c);
+      hubR=hw.x; hubZ=hw.z;
+    }
+    mazeStartPortal.position.set(hubR,1.7,hubZ);
     mazeStartPortal.visible=true;
     maze={
       SIZE:data.SIZE, grid:data.grid, gates:gates, coins:coins,
-      magnet:false, chestOpen:false, done:false,
+      magnet:false, chestOpen:false, done:false, collapsing:false, collapseT:0,
       denyT:0, hintT:0, leaveArmed:false, t:MAZE_TIME,
       chestX:ch.x, chestZ:ch.z,
       exitX:ex.x, exitZ:ex.z,
       startX:st.x, startZ:st.z,
+      hubX:hubR, hubZ:hubZ,
       coinsAtEntry:coinsBanked,
-      coinsEarned:0
+      coinsEarned:0,
+      walls:liveWalls,
+      seed:data.seed
     };
 
-    /* spawn a cell toward the center so the start portal isn't entered instantly */
+    /* spawn a cell toward the center so spawn isn't on top of anything */
     var sdx=ch.x-st.x, sdz=ch.z-st.z, sd=Math.hypot(sdx,sdz)||1;
     pos.set(st.x+sdx/sd*MAZE_CELL*1.35, RADIUS, st.z+sdz/sd*MAZE_CELL*1.35);
     vel.set(0,0,0); grounded=true;
@@ -1386,8 +1530,21 @@
     updateMazeCollapseHud();
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
   }
+  function flushToastQueue(){
+    toastQueue.length=0;
+    toastBusy=false;
+    if(toastEl) toastEl.classList.remove('show');
+  }
+  function leaveMazeToHub(){
+    flushToastQueue();
+    mazeHubCool=1.8;
+    returnToHub();
+  }
   function hideMazeCollapseHud(){
-    if(hubPortalHudEl) hubPortalHudEl.classList.remove('on');
+    if(hubPortalHudEl){
+      hubPortalHudEl.classList.remove('on');
+      hubPortalHudEl.classList.remove('collapse');
+    }
   }
   function loseMazeRunCoins(){
     if(!maze) return;
@@ -1407,20 +1564,30 @@
     if(!hubPortalHudEl||!maze||maze.done){ hideMazeCollapseHud(); return; }
     var left=Math.max(0, Math.ceil(maze.t));
     hubPortalHudEl.classList.add('on');
-    hubPortalHudEl.textContent='MAZE COLLAPSE IN '+left;
+    if(maze.t<15){
+      hubPortalHudEl.classList.add('collapse');
+      hubPortalHudEl.textContent='COLLAPSE IN '+left;
+    } else {
+      hubPortalHudEl.classList.remove('collapse');
+      hubPortalHudEl.textContent='MAZE COLLAPSE IN '+left;
+    }
   }
   function finishMaze(){
     if(!maze||maze.done) return;
     maze.done=true;
     hideMazeCollapseHud();
     mazeExitBeacon.visible=false;
-    mazeExitPortal.position.set(maze.chestX,1.7,maze.chestZ);
+    /* Win exit: opposite corner — never under the chest (avoids auto-warp + hub toast leak) */
+    mazeStartPortal.visible=false;
+    mazeExitPortal.position.set(maze.exitX,1.7,maze.exitZ);
     mazeExitPortal.visible=true;
     coinScore+=800; updateHUD();
     toastQueue.push('+800'); showNextToast();
     toastQueue.push('PORTAL OPEN'); showNextToast();
-    spawnShock(maze.chestX,maze.chestZ); fovPulse=0.25; boomSfx(); badgeSfx();
+    spawnShock(maze.exitX,maze.exitZ); fovPulse=0.25; boomSfx(); badgeSfx();
     iframes=Math.max(iframes,2);
+    awardBadge('tollbreaker');
+    if(maze.t>=30) awardBadge('tightpurse');
   }
   function showMagnetUnlock(){
     state='raygun';
@@ -1443,7 +1610,7 @@
     if(state!=='play'||!portal||!portal.visible) return false;
     if(Math.hypot(pos.x-portal.position.x,pos.z-portal.position.z)<2
        &&Math.abs(pos.y-portal.position.y)<1.8){
-      returnToHub();
+      leaveMazeToHub();
       return true;
     }
     return false;
@@ -1456,12 +1623,33 @@
       if(bossBannerT<=0) bossBannerEl.style.opacity='0';
     }
 
-    /* start portal always leads home; arm after the player walks clear of spawn */
+    /* collapse finale: walls sink, then strip gold and bounce home */
+    if(maze.collapsing){
+      maze.collapseT-=dt;
+      var k=1-Math.max(0,maze.collapseT)/0.85;
+      for(var cw=0;cw<(maze.walls||[]).length;cw++){
+        var wm=maze.walls[cw];
+        wm.position.y=(wm.userData.baseY||MAZE_WALL_H/2)*(1-k*0.95)-k*1.2;
+        if(wm.material) wm.material.opacity=Math.max(0.05,1-k);
+      }
+      if(maze.collapseT<=0){
+        hideMazeCollapseHud();
+        flushToastQueue();
+        loseMazeRunCoins();
+        mazeHubCool=1.8;
+        toastQueue.push('MAZE COLLAPSED');
+        failToHub();
+      }
+      return;
+    }
+
+    /* mid-maze hub portal; arm after walking clear of spawn and the portal itself */
     mazeStartPortal.rotation.y+=1.4*dt;
     mazeStartPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
     if(!maze.leaveArmed){
-      if(Math.hypot(pos.x-maze.startX,pos.z-maze.startZ)>2.6) maze.leaveArmed=true;
-    } else if(mazeTryHubPortal(mazeStartPortal)) return;
+      if(Math.hypot(pos.x-maze.startX,pos.z-maze.startZ)>2.6
+         &&Math.hypot(pos.x-maze.hubX,pos.z-maze.hubZ)>3.2) maze.leaveArmed=true;
+    } else if(!maze.done&&mazeTryHubPortal(mazeStartPortal)) return;
 
     if(maze.done){
       mazeExitPortal.rotation.y+=1.4*dt;
@@ -1472,11 +1660,36 @@
 
     maze.t-=dt;
     updateMazeCollapseHud();
+
+    /* last 15s: ink walls flicker and shudder */
+    if(maze.t<15&&maze.walls){
+      var pulse=0.5+0.5*Math.sin(elapsed*14);
+      for(var fw=0;fw<maze.walls.length;fw++){
+        var wmesh=maze.walls[fw];
+        var base=wmesh.userData.baseY||MAZE_WALL_H/2;
+        wmesh.position.y=base+Math.sin(elapsed*9+fw*0.17)*0.08*pulse;
+        if(wmesh.material&&wmesh.material.color){
+          var shade=Math.floor(17+pulse*40);
+          wmesh.material.color.setRGB(shade/255,shade/255,shade/255);
+        }
+      }
+      if(!reducedMotion){
+        shakeT=Math.max(shakeT,0.08);
+        shakeX=(Math.random()-0.5); shakeZ=(Math.random()-0.5);
+      }
+    }
+
     if(maze.t<=0){
-      toastQueue.push('MAZE COLLAPSED'); showNextToast();
-      hideMazeCollapseHud();
-      loseMazeRunCoins();
-      failToHub();
+      maze.collapsing=true;
+      maze.collapseT=0.85;
+      maze.t=0;
+      boomSfx(); thudSfx();
+      shakeT=0.35; shakeX=0.7; shakeZ=0.3; fovPulse=0.3;
+      for(var sw=0;sw<(maze.walls||[]).length;sw++){
+        if(maze.walls[sw].material){
+          maze.walls[sw].material.transparent=true;
+        }
+      }
       return;
     }
     maze.denyT-=dt; maze.hintT-=dt;
@@ -1490,6 +1703,9 @@
           g.anim=Math.min(1,g.anim+dt/0.7);
           g.mesh.position.y=MAZE_WALL_H/2 - g.anim*1.6;
           g.mesh.material.opacity=1-g.anim;
+          if(g.costLabels){
+            for(var cl=0;cl<g.costLabels.length;cl++) g.costLabels[cl].material.opacity=1-g.anim;
+          }
           if(g.anim>=1) g.mesh.visible=false;
         }
         continue;
@@ -3230,7 +3446,9 @@
     {id:'s500',    g:'D',  name:'HIGH ROLLER', how:'Reach a score of 500 in one run.'},
     {id:'sweep',   g:'SW', name:'SWEEPER', how:'Clear 6 bullets with a single ground pound.'},
     {id:'heart',   g:'LF', name:'LIFELINE', how:'Pick up a heart drop to restore a life.'},
-    {id:'speed3',  g:'SD', name:'SPEED DEMON', how:'Grab 3 blue speed pads in one run.'}
+    {id:'speed3',  g:'SD', name:'SPEED DEMON', how:'Grab 3 blue speed pads in one run.'},
+    {id:'tollbreaker', g:'TB', name:'TOLLBREAKER', how:'Clear Tollbearer\'s Maze before it collapses.'},
+    {id:'tightpurse', g:'TP', name:'TIGHT PURSE', how:'Clear Tollbearer\'s Maze with 30 or more seconds left.'}
   ];
   var BADGE_IDS={};
   for(var bi=0;bi<BADGES.length;bi++) BADGE_IDS[BADGES[bi].id]=BADGES[bi];
@@ -4482,8 +4700,9 @@
     raceS=2; raceFin=null; raceRecov=0; racePlace=1; bumpCool=0;
     for(var i=0;i<3;i++){
       var rv=rivals[i], lo=raceLaneOffset(lanes[i]);
-      rv.lane=lo; rv.prefLane=lo; rv.s=2; rv.fin=null; rv.recov=0; rv.boostT=0; rv._gapHits=0;
+      rv.lane=lo; rv.prefLane=lo; rv.s=2; rv.fin=null; rv.leaveT=0; rv.recov=0; rv.boostT=0; rv._gapHits=0;
       rv.x=p0.x+n0x*lo; rv.z=p0.z+n0z*lo; rv.vx=0; rv.vz=0;
+      rv.mesh.visible=true; rv.shadow.visible=true;
       rv.mesh.position.set(rv.x,RADIUS,rv.z);
       rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
     }
@@ -4502,7 +4721,28 @@
     else tone(440,0.12,'square',0.06);
   }
   function raceAIStep(rv,dt){
-    if(rv.fin)return;
+    /* finished rivals dive through the portal instead of stacking on the line */
+    if(rv.fin!==null){
+      if(rv.leaveT>0){
+        rv.leaveT-=dt;
+        var k=1-Math.max(0,rv.leaveT)/0.45;
+        var px=racePortal.position.x, pz=racePortal.position.z;
+        rv.x+=(px-rv.x)*Math.min(1,dt*8);
+        rv.z+=(pz-rv.z)*Math.min(1,dt*8);
+        rv.mesh.position.set(rv.x,RADIUS*(1-k*0.85),rv.z);
+        rv.mesh.scale.setScalar(Math.max(0.05,1-k));
+        rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
+        rv.shadow.scale.setScalar(Math.max(0.05,1-k));
+        if(rv.leaveT<=0){
+          rv.mesh.visible=false;
+          rv.shadow.visible=false;
+          rv.mesh.scale.setScalar(1);
+          rv.shadow.scale.setScalar(1);
+          spawnShock(px,pz);
+        }
+      }
+      return;
+    }
     if(rv.boostT>0)rv.boostT=Math.max(0,rv.boostT-dt);
     var pr=raceProject(rv.x,rv.z,rv.s);
     rv.s=pr.s;
@@ -4709,7 +4949,11 @@
       rv.s=pr2.s;
       if(!gapThreat)rv._gapHits=0;
     }
-    if(rv.s>=RACE_LEN-4&&!rv.fin)rv.fin=raceT;
+    if(rv.s>=RACE_LEN-4&&rv.fin===null){
+      rv.fin=raceT;
+      rv.leaveT=0.45;
+      rv.vx=0; rv.vz=0;
+    }
     rv.mesh.position.set(rv.x,RADIUS,rv.z);
     rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
   }
@@ -6521,12 +6765,13 @@
         enterHubDestination();
       }
       /* Gate Maze debug portal (hub rest only — not in sequence) */
+      if(mazeHubCool>0) mazeHubCool-=dt;
       mazeDebugPortal.visible=isHubRest();
       mazeDebugShadow.visible=isHubRest();
       if(isHubRest()){
         mazeDebugPortal.rotation.y+=1.4*dt;
         mazeDebugPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
-        if(state==='play'
+        if(state==='play'&&mazeHubCool<=0
            &&Math.hypot(pos.x-mazeDebugPortal.position.x,pos.z-mazeDebugPortal.position.z)<2.2
            &&Math.abs(pos.y-mazeDebugPortal.position.y)<1.8){
           enterMaze();

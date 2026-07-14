@@ -1,5 +1,5 @@
-/* Gate Maze level data — ported from gate-maze.jsx
- * Exposes window.GateMazeLib.buildLevel()
+/* Gate Maze / Tollbearer's Maze level data
+ * Exposes window.GateMazeLib.buildLevel(seed?)
  */
 (function (global) {
   'use strict';
@@ -7,9 +7,10 @@
   var CELLS = 16;
   var SIZE = CELLS * 2 + 1; /* 33 */
   var HALF = (SIZE - 1) / 2; /* 16 */
-  var GATE_COSTS = [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4];
-  var SEED = 20260713;
   var TARGET_GATES = 20;
+  /* Cost mix: more 4s than extremes; path gates skew higher */
+  var COST_OFF = [2, 2, 4, 4, 4, 4, 8];
+  var COST_PATH = [4, 4, 4, 8, 8, 2];
 
   function mulberry32(a) {
     return function () {
@@ -19,6 +20,11 @@
       t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+  }
+
+  function pickCost(rnd, onPath) {
+    var bag = onPath ? COST_PATH : COST_OFF;
+    return bag[(rnd() * bag.length) | 0];
   }
 
   function generateMaze(rnd) {
@@ -87,12 +93,51 @@
     return { dist: dist, parent: parent };
   }
 
-  function buildLevel() {
-    var rnd = mulberry32(SEED);
+  function carvePlaza(grid, cr, cc, half) {
+    var r, c;
+    for (r = cr - half; r <= cr + half; r++) {
+      for (c = cc - half; c <= cc + half; c++) {
+        if (r > 0 && r < SIZE - 1 && c > 0 && c < SIZE - 1) grid[r][c] = 0;
+      }
+    }
+  }
+
+  function buildLevel(seed) {
+    if (seed == null || !isFinite(seed)) seed = (Date.now() ^ ((Math.random() * 1e9) | 0)) >>> 0;
+    seed = seed >>> 0;
+    var rnd = mulberry32(seed);
     var grid = generateMaze(rnd);
     var start = [SIZE - 2, 1];
     var exit = [1, SIZE - 2];
     var chest = [HALF, HALF];
+
+    /* Landmark plazas — carved before path/gates so corridors connect through them */
+    var landmarks = [];
+    var landmarkKinds = ['gold', 'shrine', 'crossroads'];
+    var tries = 0;
+    while (landmarks.length < 3 && tries < 80) {
+      tries++;
+      var lr = 3 + ((rnd() * (SIZE - 6)) | 0);
+      var lc = 3 + ((rnd() * (SIZE - 6)) | 0);
+      /* odd cells sit on the floor lattice */
+      if (lr % 2 === 0) lr++;
+      if (lc % 2 === 0) lc++;
+      if (lr >= SIZE - 2 || lc >= SIZE - 2) continue;
+      if (Math.abs(lr - chest[0]) + Math.abs(lc - chest[1]) < 7) continue;
+      if (Math.abs(lr - start[0]) + Math.abs(lc - start[1]) < 5) continue;
+      if (Math.abs(lr - exit[0]) + Math.abs(lc - exit[1]) < 5) continue;
+      var clash = false;
+      for (var li = 0; li < landmarks.length; li++) {
+        if (Math.abs(landmarks[li].r - lr) + Math.abs(landmarks[li].c - lc) < 8) {
+          clash = true; break;
+        }
+      }
+      if (clash) continue;
+      var kind = landmarkKinds[landmarks.length];
+      var half = kind === 'crossroads' ? 2 : 1; /* 5x5 or 3x3 */
+      carvePlaza(grid, lr, lc, half);
+      landmarks.push({ r: lr, c: lc, kind: kind, half: half });
+    }
 
     var parent = bfs(grid, start, {}).parent;
     var path = [];
@@ -110,6 +155,10 @@
     }
     function isStraight(r, c) {
       if (Math.abs(r - HALF) <= 1 && Math.abs(c - HALF) <= 1) return null;
+      for (var li = 0; li < landmarks.length; li++) {
+        var L = landmarks[li];
+        if (Math.abs(r - L.r) <= L.half && Math.abs(c - L.c) <= L.half) return null;
+      }
       var n = floorNbrs(r, c);
       if (n.length !== 2) return null;
       if (n[0][1] === 0 && n[1][1] === 0) return 'z';
@@ -136,26 +185,30 @@
       if (Math.abs(r - start[0]) + Math.abs(c - start[1]) < 3) return true;
       if (Math.abs(r - exit[0]) + Math.abs(c - exit[1]) < 3) return true;
       if (Math.abs(r - chest[0]) + Math.abs(c - chest[1]) < 3) return true;
+      for (var li = 0; li < landmarks.length; li++) {
+        var L = landmarks[li];
+        if (Math.abs(r - L.r) <= L.half + 1 && Math.abs(c - L.c) <= L.half + 1) return true;
+      }
       return false;
     }
-    function tryPlace(r, c, axis, idx) {
+    function tryPlace(r, c, axis, idx, onPath) {
       if (!axis || nearSpecial(r, c) || tooClose(r, c, 5)) return false;
       gates.push({
         r: r, c: c,
         idx: idx != null ? idx : (pathIdx[key(r, c)] != null ? pathIdx[key(r, c)] : 999),
-        axis: axis, cost: 4, open: false
+        axis: axis,
+        cost: pickCost(rnd, !!onPath),
+        open: false
       });
       return true;
     }
 
-    /* 1) dense gates along the solution path */
     for (var step = 5; step < path.length - 4; step += 4) {
       if (gates.length >= TARGET_GATES) break;
       var cell = path[step];
-      tryPlace(cell[0], cell[1], isStraight(cell[0], cell[1]), step);
+      tryPlace(cell[0], cell[1], isStraight(cell[0], cell[1]), step, true);
     }
 
-    /* 2) fill remaining straight corridors across the whole maze */
     var candidates = [];
     for (var r = 1; r < SIZE - 1; r++) {
       for (var c = 1; c < SIZE - 1; c++) {
@@ -171,17 +224,13 @@
       candidates[ci] = candidates[sw];
       candidates[sw] = tmp;
     }
-    /* prefer off-path corridors so empty wings get gates */
     candidates.sort(function (a, b) { return (a.onPath ? 1 : 0) - (b.onPath ? 1 : 0); });
     for (var cj = 0; cj < candidates.length && gates.length < TARGET_GATES; cj++) {
       var cand = candidates[cj];
-      tryPlace(cand.r, cand.c, cand.axis, null);
+      tryPlace(cand.r, cand.c, cand.axis, null, cand.onPath);
     }
 
     gates.sort(function (a, b) { return a.idx - b.idx; });
-    gates.forEach(function (g, i) {
-      g.cost = GATE_COSTS[i] != null ? GATE_COSTS[i] : 4;
-    });
 
     var specials = {};
     specials[key(start[0], start[1])] = 1;
@@ -189,15 +238,24 @@
     specials[key(chest[0], chest[1])] = 1;
     gates.forEach(function (g) { specials[key(g.r, g.c)] = 1; });
 
-    /* scatter coins across the maze — enough to pay every gate */
-    var coinCells = [];
+    var goldKeys = {};
+    landmarks.forEach(function (L) {
+      for (var rr = L.r - L.half; rr <= L.r + L.half; rr++) {
+        for (var cc = L.c - L.half; cc <= L.c + L.half; cc++) {
+          if (L.kind === 'gold') goldKeys[key(rr, cc)] = 1;
+          else if (L.kind === 'shrine' && rr === L.r && cc === L.c)
+            specials[key(rr, cc)] = 1; /* shrine center reserved for prop */
+        }
+      }
+    });
+
     var floorPool = [];
     for (var fr = 1; fr < SIZE - 1; fr++) {
       for (var fc = 1; fc < SIZE - 1; fc++) {
         if (grid[fr][fc] !== 0) continue;
         var fk = key(fr, fc);
         if (specials[fk]) continue;
-        floorPool.push([fr, fc]);
+        floorPool.push([fr, fc, goldKeys[fk] ? 1 : 0]);
       }
     }
     for (var fj = floorPool.length - 1; fj > 0; fj--) {
@@ -206,18 +264,21 @@
       floorPool[fj] = floorPool[fs];
       floorPool[fs] = ft;
     }
+    floorPool.sort(function (a, b) { return b[2] - a[2]; });
     var coinNeed = Math.min(floorPool.length, Math.max(gates.length * 5, 48));
-    coinCells = floorPool.slice(0, coinNeed);
+    var coinCells = floorPool.slice(0, coinNeed).map(function (p) { return [p[0], p[1]]; });
 
     return {
       SIZE: SIZE,
       HALF: HALF,
+      seed: seed,
       grid: grid,
       start: start,
       exit: exit,
       chest: chest,
       gates: gates,
-      coinCells: coinCells
+      coinCells: coinCells,
+      landmarks: landmarks
     };
   }
 
@@ -225,8 +286,7 @@
     CELLS: CELLS,
     SIZE: SIZE,
     HALF: HALF,
-    GATE_COSTS: GATE_COSTS,
     buildLevel: buildLevel,
     key: key
   };
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? global : this));
