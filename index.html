@@ -914,8 +914,8 @@
       r:Math.round(z/MAZE_CELL)+MAZE_HALF_I
     };
   }
-  /* Roll look: white toon walls + ink edges, dotted floor, gold discs */
-  var mazeWallMat=new THREE.MeshToonMaterial({color:0xffffff,gradientMap:gradientMap});
+  /* Roll look: ink walls + pale edges, dotted floor, gold discs */
+  var mazeWallMat=new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap});
   var mazeGateMat=new THREE.MeshToonMaterial({color:RED,gradientMap:gradientMap,transparent:true,opacity:1});
   var mazeDotTex=dotTex.clone();
   mazeDotTex.repeat.set(24,24);
@@ -966,7 +966,7 @@
   var mazeWallEdgeGeo=new THREE.EdgesGeometry(mazeWallGeo);
   for(var mwi=0;mwi<650;mwi++){
     var wall=mazeReg(new THREE.Mesh(mazeWallGeo,mazeWallMat));
-    wall.add(new THREE.LineSegments(mazeWallEdgeGeo,new THREE.LineBasicMaterial({color:INK})));
+    wall.add(new THREE.LineSegments(mazeWallEdgeGeo,new THREE.LineBasicMaterial({color:0xffffff})));
     mazeWallPool.push(wall);
   }
   /* debug hub portal */
