@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -428,6 +428,7 @@
      hop maxRise 2.25, beam-clear 0.63s, bullet-dodge 0.60s, mound-top safe */
   var G=30, RADIUS=1, ACCEL=54, FRICTION=3.6, MAX_SPEED=15, REST=0.35; /* MAX_SPEED == ACCEL/FRICTION: no air/ground mismatch */
   var BLUE=0x18a0e8, BOOST_MULT=1.6, BOOST_TIME=4; /* speed pad: 1.6x for 4s, keeps clamp==terminal */
+  var RACE_TURBO_MULT=2.25, RACE_TURBO_S=12; /* red start powerup: big boost until hub portal */
   var RAY=0x50ffd2, RAYGUN_TIME=10; /* unlocked after Inkwell: dual-stream seal shots */
   var ARENA=26, BOSS_ARENA=34, HOP_VY=16, BEAM_TOP=0.95, BULLET_R=0.45, MAX_BULLETS=280;
   var INK=0x111111, RED=0xe8262a, GOLD=0xf2b705, WARN=0xbbbbbb;
@@ -492,7 +493,7 @@
         var dz=(x-p.x)*p.tx+(z-p.z)*p.tz;
         var dn=Math.abs((x-p.x)*(-p.tz)+(z-p.z)*p.tx);
         if(Math.abs(dz)<=rp[1]&&dn<=p.w){
-          h=Math.max(h,(dz+rp[1])/(rp[1]*2)*4.6);
+          h=Math.max(h,(dz+rp[1])/(rp[1]*2)*(rp[2]||4.6));
         }
       }
       return h;
@@ -769,8 +770,9 @@
     }
     return new THREE.ShapeGeometry(sh);
   }
-  /* seq: nautilus, inkwell, corridor, obsidian, lava — always a circle, color marks the route */
-  var HUB_PORTAL_COLORS=[BLUE, INK, GOLD, DIAMOND, RED, INK];
+  /* seq: nautilus, inkwell, corridor, obsidian, lava, viper, maze, circuit — color marks the route */
+  var HUB_PORTAL_COLORS=[BLUE, INK, GOLD, DIAMOND, RED, INK, GOLD, 0x7a3ff2];
+  var HUB_SEQ_LEN=HUB_PORTAL_COLORS.length;
   var hubPortalGeos={
     circle:makePortalTubeGeo('circle')
   };
@@ -904,8 +906,7 @@
   /* ============================ GATE MAZE ============================ */
   /* Pay gold gates, open the center chest for MAGNET, escape the beacon. */
   var maze=null;
-  var mazeHubCool=0; /* block re-entry via hub debug portal right after leaving */
-  var MAZE_CELL=2.4, MAZE_WALL_H=2.35, MAZE_HALF_I=16;
+  var MAZE_CELL=4.8, MAZE_WALL_H=2.35, MAZE_HALF_I=16;
   var MAZE_MAGNET_R=12, MAZE_MAGNET_PULL=28;
   var MAZE_TIME=90;
   function mazeReg(m){ m.visible=false; scene.add(m); mazeMeshes.push(m); return m; }
@@ -1060,17 +1061,6 @@
     }
     return g;
   }
-  /* debug hub portal */
-  var mazeDebugPortal=makePortal(-14,14,GOLD);
-  mazeDebugPortal.visible=false;
-  scene.add(mazeDebugPortal);
-  var mazeDebugShadow=new THREE.Mesh(new THREE.CircleGeometry(1.55,28),
-    new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.55}));
-  mazeDebugShadow.rotation.x=-Math.PI/2;
-  mazeDebugShadow.position.set(-14+SDX*0.7,0.02,14+SDZ*0.7);
-  mazeDebugShadow.visible=false;
-  scene.add(mazeDebugShadow);
-
   /* ============================ THE CIRCUIT ============================ */
   function raceReg(m){ m.visible=false; scene.add(m); raceMeshes.push(m); return m; }
   (function(){
@@ -1122,7 +1112,7 @@
     /* ramps */
     RACE_RAMPS.forEach(function(rp){
       var p=raceAt(rp[0]);
-      var L=rp[1]*2, W=p.w*2, HT=4.6;
+      var L=rp[1]*2, W=p.w*2, HT=rp[2]||4.6;
       var v=new Float32Array([
         -W/2,0,-L/2,  W/2,0,-L/2,  W/2,HT,L/2,   -W/2,0,-L/2,  W/2,HT,L/2,  -W/2,HT,L/2,
         -W/2,0,-L/2, -W/2,HT,L/2, -W/2,0,L/2,
@@ -1170,6 +1160,35 @@
       }
     });
   })();
+  /* Red turbo powerups — one in front of each starting lane; lasts until hub portal */
+  var raceTurboPads=[];
+  (function(){
+    var tGeo=new THREE.TorusGeometry(0.55,0.16,12,28);
+    var tOut=new THREE.TorusGeometry(0.55,0.22,12,28);
+    var tp=raceAt(RACE_TURBO_S), tnx=-tp.tz, tnz=tp.tx;
+    for(var ti=0;ti<4;ti++){
+      var lo=raceLaneOffset(ti);
+      var m=raceReg(new THREE.Mesh(tGeo,new THREE.MeshToonMaterial({color:RED,gradientMap:gradientMap})));
+      m.add(new THREE.Mesh(tOut,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
+      var sh=raceReg(new THREE.Mesh(new THREE.CircleGeometry(0.45,24),
+        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.8})));
+      sh.rotation.x=-Math.PI/2;
+      var x=tp.x+tnx*lo, z=tp.z+tnz*lo;
+      m.position.set(x,0.9,z);
+      sh.position.set(x+SDX*0.5,0.02,z+SDZ*0.5);
+      raceTurboPads.push({mesh:m,shadow:sh,alive:true,x:x,z:z,lane:lo,phase:ti*1.4});
+    }
+  })();
+  function resetRaceTurbos(){
+    for(var i=0;i<raceTurboPads.length;i++){
+      var tp=raceTurboPads[i];
+      tp.alive=true; tp.mesh.visible=true; tp.shadow.visible=true;
+    }
+  }
+  function raceSpeedMult(hasBoost, hasTurbo){
+    if(hasTurbo) return RACE_TURBO_MULT;
+    return hasBoost ? BOOST_MULT : 1;
+  }
   var raceHazards=[];
   RACE_HAZ.forEach(function(h){
     var p=raceAt(h[0]);
@@ -1264,34 +1283,24 @@
   })();
   var rivals=[];
   (function(){
+    /* Match player ball: moveG > headG > ballMesh(+outline), same geo / air-scale / roll */
+    var rivalGeo=new THREE.SphereGeometry(RADIUS,48,32);
     for(var i=0;i<3;i++){
-      var m=raceReg(new THREE.Mesh(new THREE.SphereGeometry(RADIUS,20,16),
-        new THREE.MeshToonMaterial({color:RIVAL_COLORS[i],gradientMap:gradientMap})));
-      var sh=raceReg(new THREE.Mesh(new THREE.CircleGeometry(RADIUS*0.9,20),
-        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.5,depthWrite:false})));
+      var root=raceReg(new THREE.Group());
+      var head=new THREE.Group();
+      root.add(head);
+      var ball=new THREE.Mesh(rivalGeo,new THREE.MeshToonMaterial({color:RIVAL_COLORS[i],gradientMap:gradientMap}));
+      head.add(ball);
+      var ol=new THREE.Mesh(rivalGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide}));
+      ol.scale.setScalar(1.045);
+      ball.add(ol);
+      var sh=raceReg(new THREE.Mesh(new THREE.CircleGeometry(RADIUS*0.92,40),
+        new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:1})));
       sh.rotation.x=-Math.PI/2;
-      rivals.push({mesh:m,shadow:sh,x:0,z:0,vx:0,vz:0,s:0,lane:0,
+      rivals.push({mesh:root,head:head,ball:ball,shadow:sh,x:0,z:0,vx:0,vz:0,s:0,lane:0,
         skill:[0.94,1.02,1.12][i],fin:null,leaveT:0,recov:0,boostT:0,prefLane:0});
     }
   })();
-  /* debug hub portal — NOT in raceMeshes (hub rest only, like maze debug) */
-  var raceDebugPortal=makePortal(-9,-19,0x7a3ff2);
-  raceDebugPortal.visible=false;
-  scene.add(raceDebugPortal);
-  var raceDebugShadow=new THREE.Mesh(new THREE.CircleGeometry(1.55,28),
-    new THREE.MeshBasicMaterial({color:SHADE,transparent:true,opacity:0.55}));
-  raceDebugShadow.rotation.x=-Math.PI/2;
-  raceDebugShadow.position.set(-9+SDX*0.7,0.02,-19+SDZ*0.7);
-  raceDebugShadow.visible=false;
-  scene.add(raceDebugShadow);
-  var raceDebugLabel=new THREE.Mesh(new THREE.RingGeometry(2.2,2.5,32),
-    new THREE.MeshBasicMaterial({color:0x7a3ff2,transparent:true,opacity:0.5,side:THREE.DoubleSide}));
-  raceDebugLabel.rotation.x=-Math.PI/2;
-  raceDebugLabel.position.set(-9,0.05,-19);
-  raceDebugLabel.visible=false;
-  scene.add(raceDebugLabel);
-
-
   function setMazeVisible(v){
     for(var i=0;i<mazeMeshes.length;i++) mazeMeshes[i].visible=!!v&&mazeMeshes[i].userData.keep!==false;
     if(!v){
@@ -1386,10 +1395,7 @@
     setLavaVisible(false);
     setViperVisible(false);
     clearViperLive();
-    mazeDebugPortal.visible=false;
-    mazeDebugShadow.visible=false;
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     hideHubPortalHud();
     hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
@@ -1537,7 +1543,7 @@
   }
   function leaveMazeToHub(){
     flushToastQueue();
-    mazeHubCool=1.8;
+    if(maze&&maze.done) advanceHubSeq(); /* clear advances sequence; early exit does not */
     returnToHub();
   }
   function hideMazeCollapseHud(){
@@ -1636,7 +1642,6 @@
         hideMazeCollapseHud();
         flushToastQueue();
         loseMazeRunCoins();
-        mazeHubCool=1.8;
         toastQueue.push('MAZE COLLAPSED');
         failToHub();
       }
@@ -3281,6 +3286,7 @@
   var spawnTimer=1.5, pipTimer=1, spiral=null, dropTimer=1.2;
   var combo=0, coinScore=0, scoreBase=0, pounding=false, poundReady=false, coyoteT=0;
   var raceState='none', raceT=0, raceS=0, racePlace=1, raceFin=null, raceRecov=0, bumpCool=0;
+  var raceTurbo=false; /* red start powerup — clears on hub portal */
   var playerProxy={
     get x(){return pos.x;}, set x(v){pos.x=v;},
     get z(){return pos.z;}, set z(v){pos.z=v;},
@@ -3297,7 +3303,7 @@
   var major=null, majorDone=false; /* major boss: hub seq step 1 */
   var portalUnlocked=false;        /* hub ramp portal: HUB_PORTAL_WAIT after each hub arrival */
   var HUB_PORTAL_WAIT=30;
-  var hubSeq=0;                    /* 0 nautilus, 1 giant, 2 corridor, 3 obsidian, 4 lava, 5 viper */
+  var hubSeq=0;                    /* 0 nautilus … 5 viper, 6 maze, 7 circuit */
   var hubTimer=0;                  /* time spent in hub rest this visit */
   var obs=null, obsY=OBS_FLOAT, obsX=0, obsZ=0, inkFill=0, INK_CAP=6, obsDead=false;
   var lastInkT=-99, inkDecayT=0;
@@ -4015,8 +4021,6 @@
     bossExitActive=false; bossExitPortal.visible=false;
     level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setViperVisible(false); setMazeVisible(false); clearMazeLive(); setRaceVisible(false); raceState='none';
     setFieldVisible(true);
-    mazeDebugPortal.visible=false; mazeDebugShadow.visible=false;
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     lastGroundY=RADIUS; dropTimer=1.2;
     punishRings.forEach(function(r){r.alive=false;r.mesh.visible=false;});
@@ -4676,8 +4680,6 @@
     setViperVisible(false);
     clearViperLive();
     setMazeVisible(false); clearMazeLive();
-    mazeDebugPortal.visible=false; mazeDebugShadow.visible=false;
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     hideHubPortalHud();
     hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
@@ -4691,6 +4693,9 @@
     rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
     heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
     setRaceVisible(true);
+    raceTurbo=false;
+    resetRaceTurbos();
+    if(raygunT<=0)outline.material.color.setHex(INK);
     var lanes=[0,1,2,3];
     var pl=lanes.splice(Math.floor(Math.random()*4),1)[0];
     var p0=raceAt(2), n0x=-p0.tz, n0z=p0.tx;
@@ -4700,11 +4705,17 @@
     raceS=2; raceFin=null; raceRecov=0; racePlace=1; bumpCool=0;
     for(var i=0;i<3;i++){
       var rv=rivals[i], lo=raceLaneOffset(lanes[i]);
-      rv.lane=lo; rv.prefLane=lo; rv.s=2; rv.fin=null; rv.leaveT=0; rv.recov=0; rv.boostT=0; rv._gapHits=0;
+      rv.lane=lo; rv.prefLane=lo; rv.s=2; rv.fin=null; rv.leaveT=0; rv.recov=0; rv.boostT=0; rv.raceTurbo=false; rv._gapHits=0;
       rv.x=p0.x+n0x*lo; rv.z=p0.z+n0z*lo; rv.vx=0; rv.vz=0;
+      rv.y=RADIUS; rv.vy=0; rv._grounded=true;
       rv.mesh.visible=true; rv.shadow.visible=true;
+      rv.mesh.scale.setScalar(1);
+      rv.head.scale.set(1,1,1);
+      rv.ball.quaternion.identity();
       rv.mesh.position.set(rv.x,RADIUS,rv.z);
-      rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
+      rv.shadow.position.set(rv.x+SDX*0.3,0.02,rv.z+SDZ*0.3);
+      rv.shadow.scale.setScalar(1);
+      rv.shadow.material.opacity=1;
     }
     raceState='count'; raceT=3.2;
     placeHudEl.style.display='block';
@@ -4731,13 +4742,16 @@
         rv.z+=(pz-rv.z)*Math.min(1,dt*8);
         rv.mesh.position.set(rv.x,RADIUS*(1-k*0.85),rv.z);
         rv.mesh.scale.setScalar(Math.max(0.05,1-k));
-        rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
+        rv.head.scale.set(1,1,1);
+        rv.shadow.position.set(rv.x+SDX*0.3,0.02,rv.z+SDZ*0.3);
         rv.shadow.scale.setScalar(Math.max(0.05,1-k));
         if(rv.leaveT<=0){
           rv.mesh.visible=false;
           rv.shadow.visible=false;
           rv.mesh.scale.setScalar(1);
+          rv.head.scale.set(1,1,1);
           rv.shadow.scale.setScalar(1);
+          rv.shadow.material.opacity=1;
           spawnShock(px,pz);
         }
       }
@@ -4760,16 +4774,20 @@
     if(gap>6)catchUp=1+Math.min(0.42,(gap-6)*0.014);
     else if(gap<-22)catchUp=0.90; /* ease only if way out front */
 
-    /* racing line desire: boosts ahead, else preferred lane / center */
+    /* racing line desire: grab red turbo first, then blue pads, else preferred lane */
     var seekBoost=null;
-    for(var bi=0;bi<RACE_BOOSTS.length;bi++){
-      var bs=RACE_BOOSTS[bi][0];
-      if(bs>=rv.s-1&&bs<=rv.s+look+10){ seekBoost=RACE_BOOSTS[bi]; break; }
-    }
-    if(seekBoost&&rv.boostT<=0.15)off=seekBoost[1];
-    else {
-      var home=Math.abs(rv.prefLane)<1.5?0:rv.prefLane*0.55;
-      off=off+(home-off)*Math.min(1,dt*1.8);
+    if(!rv.raceTurbo&&rv.s<RACE_TURBO_S+6){
+      off=rv.prefLane; /* stay in start lane to collect red turbo */
+    } else {
+      for(var bi=0;bi<RACE_BOOSTS.length;bi++){
+        var bs=RACE_BOOSTS[bi][0];
+        if(bs>=rv.s-1&&bs<=rv.s+look+10){ seekBoost=RACE_BOOSTS[bi]; break; }
+      }
+      if(seekBoost&&rv.boostT<=0.15)off=seekBoost[1];
+      else {
+        var home=Math.abs(rv.prefLane)<1.5?0:rv.prefLane*0.55;
+        off=off+(home-off)*Math.min(1,dt*1.8);
+      }
     }
 
     /* gaps OVERRIDE boost hunting — pick a corridor that actually fits */
@@ -4878,22 +4896,33 @@
     var bend=Math.abs(Math.atan2(p2.tz,p2.tx)-Math.atan2(p1.tz,p1.tx));
     if(bend>Math.PI)bend=Math.PI*2-bend;
     var brake=Math.max(0.86,1-bend*0.32);
+    /* skill trims corner brake only — never raises top speed above the player */
+    brake=Math.min(1,brake+(rv.skill-1)*0.08);
 
-    /* ramp kick: player launches — AI gets a surge so the race stays fair */
-    var rampBoost=1;
-    for(var ri=0;ri<RACE_RAMPS.length;ri++){
-      if(Math.abs(rv.s-RACE_RAMPS[ri][0])<RACE_RAMPS[ri][1]+1.5){rampBoost=1.12;break;}
-    }
-
-    var bMul=rv.boostT>0?BOOST_MULT:1;
-    var pace=(1.0+rv.skill*0.1)*brake*bMul*catchUp*rampBoost;
+    /* base top speed matches the player; red turbo / blue pad + rubber-band */
+    var bMul=raceSpeedMult(rv.boostT>0, !!rv.raceTurbo);
+    var pace=brake*bMul*catchUp;
     var acc=ACCEL*pace;
     rv.vx+=ix*acc*dt; rv.vz+=iz*acc*dt;
     var d=Math.max(0,1-FRICTION*dt); rv.vx*=d; rv.vz*=d;
-    var sp=Math.hypot(rv.vx,rv.vz), mx=MAX_SPEED*pace;
+    var sp=Math.hypot(rv.vx,rv.vz), mx=MAX_SPEED*bMul*catchUp;
     if(sp>mx){rv.vx*=mx/sp;rv.vz*=mx/sp;}
     rv.x+=rv.vx*dt; rv.z+=rv.vz*dt;
 
+    /* red start turbo — persists until hub portal */
+    if(!rv.raceTurbo){
+      for(var tj=0;tj<raceTurboPads.length;tj++){
+        var rtp=raceTurboPads[tj];
+        if(!rtp.alive)continue;
+        if(Math.hypot(rv.x-rtp.x,rv.z-rtp.z)<2.2){
+          rtp.alive=false; rtp.mesh.visible=false; rtp.shadow.visible=false;
+          rv.raceTurbo=true;
+          var spKick=Math.hypot(rv.vx,rv.vz);
+          if(spKick>0.4){rv.vx*=1.35;rv.vz*=1.35;}
+          break;
+        }
+      }
+    }
     /* grab boost pads */
     if(rv.boostT<=0){
       for(var bj=0;bj<RACE_BOOSTS.length;bj++){
@@ -4938,6 +4967,7 @@
       /* push forward along the track so we don't drift straight back in */
       var kick=Math.max(8,Math.hypot(rv.vx,rv.vz)*0.55);
       rv.vx=safe.tx*kick; rv.vz=safe.tz*kick;
+      rv.y=terrainH(rv.x,rv.z)+RADIUS; rv.vy=0; rv._grounded=true;
     } else if(Math.abs(pr2.off)>pAt.w*0.92){
       /* edge scrape: nudge inward, keep most speed */
       var pull=pr2.off>0?-0.35:0.35;
@@ -4954,8 +4984,45 @@
       rv.leaveT=0.45;
       rv.vx=0; rv.vz=0;
     }
-    rv.mesh.position.set(rv.x,RADIUS,rv.z);
-    rv.shadow.position.set(rv.x+SDX*RADIUS,0.02,rv.z+SDZ*RADIUS);
+    /* ride ramp height + lip launch (same terrain as the player — no clipping) */
+    if(rv.y==null){ rv.y=RADIUS; rv.vy=0; rv._grounded=true; }
+    var thR=terrainH(rv.x,rv.z);
+    var wasGrR=rv._grounded!==false;
+    rv.vy=(rv.vy||0)-G*dt;
+    rv.y+=rv.vy*dt;
+    if(rv.y<thR+RADIUS){
+      rv.y=thR+RADIUS;
+      if(rv.vy<0)rv.vy=0;
+      rv._grounded=rv.vy<=0.01;
+      if(rv._grounded)rv.vy=0;
+    } else {
+      if(wasGrR){
+        var vpmR=Math.hypot(rv.vx,rv.vz);
+        if(vpmR>0.5){
+          var bsxR=rv.x-rv.vx/vpmR*0.4, bszR=rv.z-rv.vz/vpmR*0.4;
+          var climbR=(terrainH(rv.x,rv.z)-terrainH(bsxR,bszR))/0.4*vpmR;
+          if(climbR>1)rv.vy=Math.min(climbR*LAUNCH_MULT,LAUNCH_VY_CAP);
+        }
+      }
+      rv._grounded=false;
+    }
+    /* same ball presentation as the player (air scale, stretch, roll, shadow) */
+    var spR=Math.hypot(rv.vx,rv.vz);
+    var stretchR=1+Math.min(spR/MAX_SPEED,1)*0.12;
+    var airHR=Math.max(0,rv.y-RADIUS-thR);
+    var airScaleR=1+Math.min(airHR/10,1)*0.9;
+    if(spR>0.5)rv.head.rotation.y=Math.atan2(rv.vx,rv.vz);
+    rv.head.scale.set(airScaleR,airScaleR,stretchR*airScaleR);
+    if(spR>0.001){
+      rollAxis.set(rv.vz,0,-rv.vx).normalize();
+      rollQuat.setFromAxisAngle(rollAxis,(spR*dt)/RADIUS);
+      rv.ball.quaternion.premultiply(rollQuat);
+    }
+    rv.mesh.position.set(rv.x,rv.y,rv.z);
+    var soffR=0.3+airHR*0.5;
+    rv.shadow.position.set(rv.x+SDX*soffR,thR+0.02,rv.z+SDZ*soffR);
+    rv.shadow.scale.setScalar(Math.max(0.5,1-airHR*0.09));
+    rv.shadow.material.opacity=Math.max(0.35,1-airHR*0.12);
   }
 
   function setArenaVisible(v){
@@ -4988,7 +5055,6 @@
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5023,8 +5089,8 @@
     setMazeVisible(false);
     clearMazeLive();
     setRaceVisible(false); raceState='none';
-    mazeDebugPortal.visible=false; mazeDebugShadow.visible=false;
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
+    raceTurbo=false;
+    if(raygunT<=0)outline.material.color.setHex(INK);
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5049,7 +5115,7 @@
     spawnShock(0,0); fovPulse=0.3; boomSfx();
   }
   function advanceHubSeq(){
-    hubSeq=(hubSeq+1)%6;
+    hubSeq=(hubSeq+1)%HUB_SEQ_LEN;
   }
   function enterHubDestination(){
     portalUnlocked=false;
@@ -5060,7 +5126,9 @@
     else if(hubSeq===2) enterCorridor();
     else if(hubSeq===3) enterObsidian();
     else if(hubSeq===4) enterLava();
-    else enterViper();
+    else if(hubSeq===5) enterViper();
+    else if(hubSeq===6) enterMaze();
+    else enterRace();
   }
   function failToHub(){
     /* died outside hub rest: bank score, bounce home, restart sequence at 0 pts */
@@ -5088,7 +5156,6 @@
     setMazeVisible(false);
     clearMazeLive();
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     returnToHub();
     resetRunScore();
@@ -5118,7 +5185,6 @@
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     setArenaVisible(false);
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5151,7 +5217,6 @@
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5197,7 +5262,6 @@
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     setArenaVisible(false);
     pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
@@ -5407,7 +5471,6 @@
     setLavaVisible(false);
     setMazeVisible(false); clearMazeLive();
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     hideHubPortalHud();
     hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
@@ -5828,7 +5891,6 @@
     FIELD_OFF=true; setFieldVisible(false);
     setMazeVisible(false); clearMazeLive();
     setRaceVisible(false); raceState='none';
-    raceDebugPortal.visible=false; raceDebugShadow.visible=false; raceDebugLabel.visible=false;
     clearMajorLasers(); clearInkShots();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     chords.forEach(function(c){c.alive=false;c.mesh.visible=false;});
@@ -5900,8 +5962,9 @@
   function physicsStep(dt){
     if(level==='race'&&raceState==='count'){ input.x=0; input.y=0; }
     var poisonK=(level==='obsidian')?1-(inkFill/INK_CAP)*0.45:1;
-    var accelE=ACCEL*(boostT>0?BOOST_MULT:1)*poisonK; /* boost & poison scale accel + clamp together */
-    var maxE=MAX_SPEED*(boostT>0?BOOST_MULT:1)*poisonK; /* so clamp still == terminal */
+    var raceMul=level==='race'?raceSpeedMult(boostT>0, raceTurbo):(boostT>0?BOOST_MULT:1);
+    var accelE=ACCEL*raceMul*poisonK; /* boost & poison scale accel + clamp together */
+    var maxE=MAX_SPEED*raceMul*poisonK; /* so clamp still == terminal */
     vel.x+=input.x*accelE*dt;
     vel.z+=input.y*accelE*dt;
 
@@ -6231,8 +6294,9 @@
     /* boost: decrement timer, tint the ball's outline while active */
     if(boostT>0){
       boostT-=dt;
-      if(boostT<=0&&raygunT<=0)outline.material.color.setHex(INK);
+      if(boostT<=0&&raygunT<=0&&!raceTurbo)outline.material.color.setHex(INK);
     }
+    if(raceTurbo&&raygunT<=0)outline.material.color.setHex(RED);
     if(isHubRest()){
       boostSpawnTimer-=dt;
       if(boostSpawnTimer<=0){spawnBoost();boostSpawnTimer=11;}
@@ -6287,7 +6351,7 @@
     if(raygunT>0){
       raygunT-=dt;
       if(raygunT<=0){
-        outline.material.color.setHex(boostT>0?BLUE:INK);
+        outline.material.color.setHex(raceTurbo?RED:(boostT>0?BLUE:INK));
       } else {
         rayFireCool-=dt;
         if(rayFireCool<=0){
@@ -6511,13 +6575,36 @@
           sayHit(inHole?'FELL IN THE GAP':'OFF THE TRACK');
           spawnShock(pos.x,pos.z);
         }
+        /* red start turbos: bob/spin + pickup (boost lasts until hub portal) */
+        for(i=0;i<raceTurboPads.length;i++){
+          var rtp=raceTurboPads[i];
+          if(!rtp.alive)continue;
+          rtp.mesh.rotation.y+=3.4*dt; rtp.mesh.rotation.x=Math.PI/2;
+          var tbob=Math.sin(elapsed*2.8+rtp.phase)*0.12;
+          rtp.mesh.position.y=0.9+tbob;
+          rtp.shadow.scale.setScalar(1-tbob*0.9);
+          if(!raceTurbo&&Math.hypot(pos.x-rtp.x,pos.z-rtp.z)<RADIUS+0.85){
+            rtp.alive=false; rtp.mesh.visible=false; rtp.shadow.visible=false;
+            raceTurbo=true;
+            outline.material.color.setHex(RED);
+            var sp0r=Math.hypot(vel.x,vel.z);
+            if(sp0r>0.5){vel.x*=1.4;vel.z*=1.4;}
+            else {
+              var fwd=raceAt(raceS);
+              vel.x+=fwd.tx*10; vel.z+=fwd.tz*10;
+            }
+            boostSfx(); boomSfx();
+            fovPulse=0.28; shakeT=0.14; shakeX=vel.x; shakeZ=vel.z;
+            toastQueue.push('TURBO'); showNextToast();
+          }
+        }
         for(i=0;i<RACE_BOOSTS.length;i++){
           var bp=RACE_BOOSTS[i], bpt=raceAt(bp[0]);
           var bnx=-bpt.tz,bnz=bpt.tx;
           var bx=bpt.x+bnx*bp[1], bz=bpt.z+bnz*bp[1];
           if(Math.hypot(pos.x-bx,pos.z-bz)<2.2&&boostT<=0){
             boostT=BOOST_TIME;
-            outline.material.color.setHex(BLUE);
+            if(!raceTurbo)outline.material.color.setHex(BLUE);
             tone(660,0.1,'square',0.06,990);
           }
         }
@@ -6639,6 +6726,7 @@
         racePortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
         if(raceState==='done'
            &&Math.hypot(pos.x-racePortal.position.x,pos.z-racePortal.position.z)<2.2){
+          advanceHubSeq();
           returnToHub();
         }
       }
@@ -6763,33 +6851,6 @@
          &&Math.hypot(pos.x-hubPortal.position.x,pos.z-hubPortal.position.z)<2.2
          &&Math.abs(pos.y-hubPortal.position.y)<1.7){
         enterHubDestination();
-      }
-      /* Gate Maze debug portal (hub rest only — not in sequence) */
-      if(mazeHubCool>0) mazeHubCool-=dt;
-      mazeDebugPortal.visible=isHubRest();
-      mazeDebugShadow.visible=isHubRest();
-      if(isHubRest()){
-        mazeDebugPortal.rotation.y+=1.4*dt;
-        mazeDebugPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
-        if(state==='play'&&mazeHubCool<=0
-           &&Math.hypot(pos.x-mazeDebugPortal.position.x,pos.z-mazeDebugPortal.position.z)<2.2
-           &&Math.abs(pos.y-mazeDebugPortal.position.y)<1.8){
-          enterMaze();
-        }
-      }
-
-      /* THE CIRCUIT debug portal (hub rest only — not in sequence) */
-      raceDebugPortal.visible=isHubRest();
-      raceDebugShadow.visible=isHubRest();
-      raceDebugLabel.visible=isHubRest();
-      if(isHubRest()){
-        raceDebugPortal.rotation.y+=1.4*dt;
-        raceDebugPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
-        if(state==='play'
-           &&Math.hypot(pos.x-raceDebugPortal.position.x,pos.z-raceDebugPortal.position.z)<2.2
-           &&Math.abs(pos.y-raceDebugPortal.position.y)<1.8){
-          enterRace();
-        }
       }
       /* after the giant falls, its portal leads back to the hub */
       if(bossExitActive){
@@ -7439,12 +7500,12 @@
     /* speed lines */
     if(!reducedMotion){
       lineTimer-=dt;
-      if((sp2>MAX_SPEED*0.65||boostT>0)&&sp2>1&&lineTimer<=0){
-        lineTimer=boostT>0?0.03:0.06;              /* denser trail while boosting */
+      if((sp2>MAX_SPEED*0.65||boostT>0||raceTurbo)&&sp2>1&&lineTimer<=0){
+        lineTimer=(boostT>0||raceTurbo)?0.03:0.06;              /* denser trail while boosting */
         var L=lines[lineIdx=(lineIdx+1)%lines.length];
         var bx=pos.x-vel.x/sp2*1.6+(Math.random()-0.5)*1.4;
         var bz=pos.z-vel.z/sp2*1.6+(Math.random()-0.5)*1.4;
-        L.mesh.material.color.setHex(boostT>0?BLUE:INK);
+        L.mesh.material.color.setHex(raceTurbo?RED:(boostT>0?BLUE:INK));
         L.mesh.position.set(bx,terrainH(bx,bz)+0.06,bz);
         L.mesh.rotation.z=-Math.atan2(vel.x,vel.z);
         L.t=0.35; L.mesh.visible=true;

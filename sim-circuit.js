@@ -1,4 +1,4 @@
-/* Headless THE CIRCUIT race sim — 20 races, AI + track diagnostics */
+/* Headless THE CIRCUIT race sim — N races (default 50), AI + track diagnostics */
 'use strict';
 global.window = global;
 require('./circuit.js');
@@ -10,9 +10,14 @@ var RACE_HAZ = L.RACE_HAZ, RACE_SWING = L.RACE_SWING, RACE_BOOSTS = L.RACE_BOOST
 var RACE_WP = L.RACE_WP;
 
 var ACCEL = 54, FRICTION = 3.6, MAX_SPEED = 15, BOOST_MULT = 1.6, BOOST_TIME = 4;
+var RACE_TURBO_MULT = 2.25, RACE_TURBO_S = 12;
 var RADIUS = 1, DT = 1 / 60, MAX_T = 180;
 
 function laneOffset(i) { return (i - 1.5) * 3.4; }
+function raceSpeedMult(hasBoost, hasTurbo) {
+  if (hasTurbo) return RACE_TURBO_MULT;
+  return hasBoost ? BOOST_MULT : 1;
+}
 
 function makeHazards() {
   return RACE_HAZ.map(function (h) {
@@ -34,7 +39,7 @@ function makeDriver(skill, lane, name, isPlayer) {
   var p0 = raceAt(2), n0x = -p0.tz, n0z = p0.tx;
   return {
     name: name, skill: skill, isPlayer: !!isPlayer,
-    lane: lane, prefLane: lane, s: 2, fin: null, recov: 0, boostT: 0,
+    lane: lane, prefLane: lane, s: 2, fin: null, recov: 0, boostT: 0, raceTurbo: false,
     boostGrabs: 0, hazardHits: 0, swingHits: 0, maxGapFall: 0,
     x: p0.x + n0x * lane, z: p0.z + n0z * lane, vx: 0, vz: 0,
     stuckT: 0, lastS: 2, backsteps: 0, nan: false
@@ -60,16 +65,20 @@ function raceAIStep(rv, dt, drivers, raceSPlayer, raceHazards, raceSwings, raceT
     if(gap>6)catchUp=1+Math.min(0.42,(gap-6)*0.014);
     else if(gap<-22)catchUp=0.90; /* ease only if way out front */
 
-    /* racing line desire: boosts ahead, else preferred lane / center */
+    /* racing line desire: grab red turbo first, then blue pads, else preferred lane */
     var seekBoost=null;
-    for(var bi=0;bi<RACE_BOOSTS.length;bi++){
-      var bs=RACE_BOOSTS[bi][0];
-      if(bs>=rv.s-1&&bs<=rv.s+look+10){ seekBoost=RACE_BOOSTS[bi]; break; }
-    }
-    if(seekBoost&&rv.boostT<=0.15)off=seekBoost[1];
-    else {
-      var home=Math.abs(rv.prefLane)<1.5?0:rv.prefLane*0.55;
-      off=off+(home-off)*Math.min(1,dt*1.8);
+    if(!rv.raceTurbo&&rv.s<RACE_TURBO_S+6){
+      off=rv.prefLane;
+    } else {
+      for(var bi=0;bi<RACE_BOOSTS.length;bi++){
+        var bs=RACE_BOOSTS[bi][0];
+        if(bs>=rv.s-1&&bs<=rv.s+look+10){ seekBoost=RACE_BOOSTS[bi]; break; }
+      }
+      if(seekBoost&&rv.boostT<=0.15)off=seekBoost[1];
+      else {
+        var home=Math.abs(rv.prefLane)<1.5?0:rv.prefLane*0.55;
+        off=off+(home-off)*Math.min(1,dt*1.8);
+      }
     }
 
     /* gaps OVERRIDE boost hunting — pick a corridor that actually fits */
@@ -172,22 +181,29 @@ function raceAIStep(rv, dt, drivers, raceSPlayer, raceHazards, raceSwings, raceT
     var bend=Math.abs(Math.atan2(p2.tz,p2.tx)-Math.atan2(p1.tz,p1.tx));
     if(bend>Math.PI)bend=Math.PI*2-bend;
     var brake=Math.max(0.86,1-bend*0.32);
+    /* skill trims corner brake only — never raises top speed above the player */
+    brake=Math.min(1,brake+(rv.skill-1)*0.08);
 
-    /* ramp kick: player launches — AI gets a surge so the race stays fair */
-    var rampBoost=1;
-    for(var ri=0;ri<RACE_RAMPS.length;ri++){
-      if(Math.abs(rv.s-RACE_RAMPS[ri][0])<RACE_RAMPS[ri][1]+1.5){rampBoost=1.12;break;}
-    }
-
-    var bMul=rv.boostT>0?BOOST_MULT:1;
-    var pace=(1.0+rv.skill*0.1)*brake*bMul*catchUp*rampBoost;
+    /* base top speed matches the player; red turbo / blue pad + rubber-band */
+    var bMul=raceSpeedMult(rv.boostT>0, !!rv.raceTurbo);
+    var pace=brake*bMul*catchUp;
     var acc=ACCEL*pace;
     rv.vx+=ix*acc*dt; rv.vz+=iz*acc*dt;
     var d=Math.max(0,1-FRICTION*dt); rv.vx*=d; rv.vz*=d;
-    var sp=Math.hypot(rv.vx,rv.vz), mx=MAX_SPEED*pace;
+    var sp=Math.hypot(rv.vx,rv.vz), mx=MAX_SPEED*bMul*catchUp;
     if(sp>mx){rv.vx*=mx/sp;rv.vz*=mx/sp;}
     rv.x+=rv.vx*dt; rv.z+=rv.vz*dt;
 
+    /* red start turbo at s=RACE_TURBO_S in each lane */
+    if(!rv.raceTurbo&&rv.s>=RACE_TURBO_S-2){
+      var tp=raceAt(RACE_TURBO_S), tnx=-tp.tz, tnz=tp.tx;
+      var tx=tp.x+tnx*rv.prefLane, tz=tp.z+tnz*rv.prefLane;
+      if(Math.hypot(rv.x-tx,rv.z-tz)<2.4){
+        rv.raceTurbo=true;
+        var sk=Math.hypot(rv.vx,rv.vz);
+        if(sk>0.4){rv.vx*=1.35;rv.vz*=1.35;}
+      }
+    }
     /* grab boost pads */
     if(rv.boostT<=0){
       for(var bj=0;bj<RACE_BOOSTS.length;bj++){
@@ -407,11 +423,12 @@ function validateTrack() {
   return { issues: issues, sharp: sharp, len: RACE_LEN, wp: RACE_WP.length };
 }
 
-/* ---------- Run 20 races ---------- */
+/* ---------- Run N races ---------- */
+var N_RACES = Math.max(1, parseInt(process.argv[2], 10) || 50);
 var track = validateTrack();
 var placeCounts = { PLAYER: [0, 0, 0, 0], AI_A: [0, 0, 0, 0], AI_B: [0, 0, 0, 0], AI_C: [0, 0, 0, 0] };
 var totals = {
-  races: 20, finished: 0, dnf: 0, nans: 0, stuckEvents: 0,
+  races: N_RACES, finished: 0, dnf: 0, nans: 0, stuckEvents: 0,
   recov: {}, boostGrabs: {}, hazardHits: {}, swingHits: {}, backsteps: {},
   finishTimes: {}, gapFalls: [], offTrack: [], boostHits: {}
 };
@@ -420,7 +437,7 @@ var totals = {
   totals.swingHits[n] = 0; totals.backsteps[n] = 0; totals.finishTimes[n] = [];
 });
 
-for (var r = 0; r < 20; r++) {
+for (var r = 0; r < N_RACES; r++) {
   var res = runRace(1000 + r * 97);
   if (res.finished) totals.finished++; else totals.dnf++;
   totals.nans += res.stats.nans;
