@@ -139,6 +139,13 @@
   #placeHud { position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 46px);
     transform:translateX(-50%); font-size:12px; font-weight:700; letter-spacing:0.3em;
     text-indent:0.3em; color:#111; z-index:6; display:none; }
+  #danceHud { position:fixed; left:50%; top:16%; transform:translate(-50%,-50%);
+    text-align:center; z-index:6; display:none; pointer-events:none; }
+  #danceCombo { font-size:52px; font-weight:800; color:#111; letter-spacing:0.02em;
+    text-shadow:0 2px 0 rgba(0,0,0,0.08); }
+  #danceMult { font-size:20px; font-weight:800; letter-spacing:0.2em; color:#e8262a; }
+  #danceJudge { font-size:16px; font-weight:700; letter-spacing:0.34em; text-indent:0.34em;
+    height:20px; transition:opacity 0.15s; }
 
   /* Badge toast: slides in under the HUD when earned */
   #toast {
@@ -358,6 +365,11 @@
 <div id="inkMeter"><div id="inkFill"></div></div>
 <div id="countdown"></div>
 <div id="placeHud">P1 / 4</div>
+<div id="danceHud">
+  <div id="danceCombo"></div>
+  <div id="danceMult"></div>
+  <div id="danceJudge"></div>
+</div>
 <canvas id="minimap" width="78" height="118"></canvas>
 <div id="hitWhy"></div>
 <div id="toast"></div>
@@ -385,7 +397,7 @@
   <div id="finalHigh" class="hidden"></div>
   <div id="finalScore">SCORE 000 &middot; BEST 000</div>
   <div id="finalTime">TIME TIL DEATH &middot; 0:00</div>
-  <div id="badgeLabel">BADGES 0/18</div>
+  <div id="badgeLabel">BADGES 0/20</div>
   <div id="badgeRow"></div>
   <div class="board" id="overBoard">
     <h2>TOP SCORES</h2>
@@ -405,7 +417,7 @@
 <div id="profileOverlay" class="overlay hidden">
   <h1 id="profileName">PLAYER</h1>
   <div id="profileScore">SCORE 000</div>
-  <div id="profileBadgeLabel">BADGES 0/18</div>
+  <div id="profileBadgeLabel">BADGES 0/20</div>
   <div id="profileBadgeRow"></div>
   <div id="profileHint">TAP OUTSIDE TO CLOSE</div>
   <div id="profileClose" class="cta">CLOSE</div>
@@ -419,6 +431,7 @@
 <script src="procedural-snake.js"></script>
 <script src="gate-maze.js"></script>
 <script src="circuit.js"></script>
+<script src="pulse.js"></script>
 <script>
 (function(){
   'use strict';
@@ -437,15 +450,21 @@
   var obsMeshes=[];         /* THE OBSIDIAN boss room meshes (declared early) */
   var OBS_R=22;             /* boss room radius */
   var OBS_FLOAT=14, OBS_GROUND=3.2; /* float + slam heights (needed at mesh build time) */
-  var level='arena';        /* 'arena' hub, 'corridor' climb, 'spiral' Nautilus, 'obsidian' boss, 'lava' pits, 'viper' feast, 'maze' gates, 'race' circuit */
+  var level='arena';        /* 'arena' hub, 'corridor', 'spiral', 'obsidian', 'lava', 'viper', 'maze', 'race', 'dance' pulse */
   var lavaMeshes=[];        /* LAVA PITS meshes */
   var viperMeshes=[];       /* VIPER'S FEAST boss room */
   var mazeMeshes=[];        /* GATE MAZE meshes */
   var raceMeshes=[];        /* THE CIRCUIT race level meshes */
+  var danceMeshes=[];       /* THE PULSE rhythm level meshes */
   var RACE_WP=CircuitLib.RACE_WP, RACE_SEG=CircuitLib.RACE_SEG, RACE_CUM=CircuitLib.RACE_CUM, RACE_LEN=CircuitLib.RACE_LEN;
   var raceAt=CircuitLib.raceAt, raceProject=CircuitLib.raceProject, raceOnGap=CircuitLib.raceOnGap;
   var RACE_GAPS=CircuitLib.RACE_GAPS, RACE_RAMPS=CircuitLib.RACE_RAMPS, RACE_HAZ=CircuitLib.RACE_HAZ;
   var RACE_SWING=CircuitLib.RACE_SWING, RACE_BOOSTS=CircuitLib.RACE_BOOSTS, RIVAL_COLORS=CircuitLib.RIVAL_COLORS;
+  var DANCE_LANES=PulseLib.DANCE_LANES, DANCE_HITZ=PulseLib.DANCE_HITZ, DANCE_SPAWNZ=PulseLib.DANCE_SPAWNZ;
+  var DANCE_LEAD=PulseLib.DANCE_LEAD, DANCE_SPEED=PulseLib.DANCE_SPEED, DANCE_BEAT=PulseLib.DANCE_BEAT;
+  var DANCE_W=PulseLib.DANCE_W, DANCE_TOL=PulseLib.DANCE_TOL, DANCE_SYMCOL=PulseLib.DANCE_SYMCOL;
+  var DANCE_G_UP=PulseLib.DANCE_G_UP, DANCE_G_DOWN=PulseLib.DANCE_G_DOWN;
+  var danceChart=PulseLib.danceChart;
   var VIPER_BOUND=30;       /* half-extent of square feast arena */
   var PIPE_K=0.032, PIPE_HW=10, CORR_XMAX=12.5, CORR_START=6, CORR_END=-130;
   var DIAMOND=0xbfeef8;
@@ -485,6 +504,7 @@
     if(level==='obsidian')return 0;
     if(level==='viper')return 0;
     if(level==='maze')return 0;
+    if(level==='dance')return 0;
     if(level==='lava') return lavaTerrainH(x,z);
     if(level==='race'){
       var h=0;
@@ -770,8 +790,8 @@
     }
     return new THREE.ShapeGeometry(sh);
   }
-  /* seq: nautilus, inkwell, corridor, obsidian, lava, viper, maze, circuit — color marks the route */
-  var HUB_PORTAL_COLORS=[BLUE, INK, GOLD, DIAMOND, RED, INK, GOLD, 0x7a3ff2];
+  /* destinations: nautilus, inkwell, corridor, obsidian, lava, viper, maze, circuit, pulse — color marks the route */
+  var HUB_PORTAL_COLORS=[BLUE, INK, GOLD, DIAMOND, RED, INK, GOLD, 0x7a3ff2, 0xff4d9a];
   var HUB_SEQ_LEN=HUB_PORTAL_COLORS.length;
   var hubPortalGeos={
     circle:makePortalTubeGeo('circle')
@@ -1301,6 +1321,77 @@
         skill:[0.94,1.02,1.12][i],fin:null,leaveT:0,recov:0,boostT:0,prefLane:0});
     }
   })();
+
+  /* ============================ THE PULSE ============================ */
+  function danceReg(m){ m.visible=false; scene.add(m); danceMeshes.push(m); return m; }
+  function danceSymbol(kind,size,color){
+    var g;
+    if(kind===0) g=new THREE.RingGeometry(size*0.45,size*0.7,24);
+    else if(kind===1) g=new THREE.CircleGeometry(size*0.7,3);
+    else if(kind===2) g=new THREE.PlaneGeometry(size*1.1,size*1.1);
+    else g=new THREE.PlaneGeometry(size,size);
+    var m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:color,side:THREE.DoubleSide}));
+    if(kind===3) m.rotation.z=Math.PI/4;
+    if(kind===2){
+      var hole=new THREE.Mesh(new THREE.PlaneGeometry(size*0.7,size*0.7),
+        new THREE.MeshBasicMaterial({color:0xffffff,side:THREE.DoubleSide}));
+      hole.position.z=0.01; m.add(hole);
+    }
+    return m;
+  }
+  var danceStrips=[], dancePads=[], danceHitLine=null;
+  var dancePadFlash=[0,0,0,0];   /* per-lane red flash timer on miss */
+  var DANCE_STRIP_DIM=new THREE.Color(0x141828), DANCE_STRIP_LIT=new THREE.Color(0x27305a);
+  var DANCE_FIRE_A=new THREE.Color(0x581200), DANCE_FIRE_B=new THREE.Color(0xff6a00); /* 10+ combo: lanes on fire */
+  (function(){
+    var fw=DANCE_LANES[3]-DANCE_LANES[0]+8;
+    var fg=new THREE.PlaneGeometry(fw,64);
+    fg.rotateX(-Math.PI/2);
+    var floor=danceReg(new THREE.Mesh(fg,new THREE.MeshBasicMaterial({color:0x0c0e18})));
+    floor.position.set(0,-0.02,DANCE_SPAWNZ/2+DANCE_HITZ/2);
+    DANCE_LANES.forEach(function(lx,li){
+      var strip=danceReg(new THREE.Mesh(new THREE.PlaneGeometry(3.4,60),
+        new THREE.MeshBasicMaterial({color:0x141828})));
+      strip.rotation.x=-Math.PI/2; strip.position.set(lx,0,-24);
+      danceStrips.push(strip);
+      var pad=danceReg(new THREE.Mesh(new THREE.PlaneGeometry(3.4,3.0),
+        new THREE.MeshBasicMaterial({color:DANCE_SYMCOL[li],transparent:true,opacity:0.32})));
+      pad.rotation.x=-Math.PI/2; pad.position.set(lx,0.01,DANCE_HITZ);
+      dancePads.push(pad);
+      var sym=danceReg(danceSymbol(li,2.0,DANCE_SYMCOL[li]));
+      sym.rotation.x=-Math.PI/2; sym.position.set(lx,0.04,DANCE_HITZ);
+    });
+    var hl=danceReg(new THREE.Mesh(new THREE.PlaneGeometry(fw,0.5),
+      new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:1})));
+    hl.rotation.x=-Math.PI/2; hl.position.set(0,0.03,DANCE_HITZ);
+    danceHitLine=hl;
+  })();
+  var danceNotePool=[];
+  (function(){
+    for(var i=0;i<40;i++){
+      var holder=new THREE.Group();
+      for(var k=0;k<4;k++){
+        var sm=danceSymbol(k,1.7,DANCE_SYMCOL[k]);
+        sm.rotation.x=-Math.PI/2; sm.visible=false;
+        sm.material.transparent=true;                 /* fade support for the hit pop */
+        sm.children.forEach(function(c){ c.material.transparent=true; });
+        holder.add(sm);
+      }
+      danceReg(holder);
+      danceNotePool.push({group:holder,syms:holder.children,note:null});
+    }
+  })();
+  var danceExitPortal=danceReg(makePortal(0,DANCE_HITZ,GOLD));
+  danceExitPortal.rotation.x=-Math.PI/2;
+  var dancePortalT=0;
+  var danceLock=danceReg(new THREE.Mesh(new THREE.RingGeometry(1.5,1.9,32),
+    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.85,side:THREE.DoubleSide})));
+  danceLock.rotation.x=-Math.PI/2;
+  var danceBallGlow=danceReg(new THREE.Mesh(new THREE.CircleGeometry(1.3,24),
+    new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.4,
+      blending:THREE.AdditiveBlending,depthWrite:false})));
+  danceBallGlow.rotation.x=-Math.PI/2;
+  /* hub debug portal for THE PULSE */
   function setMazeVisible(v){
     for(var i=0;i<mazeMeshes.length;i++) mazeMeshes[i].visible=!!v&&mazeMeshes[i].userData.keep!==false;
     if(!v){
@@ -1395,7 +1486,8 @@
     setLavaVisible(false);
     setViperVisible(false);
     clearViperLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
+
     hideHubPortalHud();
     hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
@@ -1516,7 +1608,7 @@
     maze={
       SIZE:data.SIZE, grid:data.grid, gates:gates, coins:coins,
       magnet:false, chestOpen:false, done:false, collapsing:false, collapseT:0,
-      denyT:0, hintT:0, leaveArmed:false, t:MAZE_TIME,
+      denyT:0, hintT:0, leaveArmed:false, exitArmT:0, t:MAZE_TIME,
       chestX:ch.x, chestZ:ch.z,
       exitX:ex.x, exitZ:ex.z,
       startX:st.x, startZ:st.z,
@@ -1543,7 +1635,7 @@
   }
   function leaveMazeToHub(){
     flushToastQueue();
-    if(maze&&maze.done) advanceHubSeq(); /* clear advances sequence; early exit does not */
+    if(maze&&maze.done) advanceHubSeq(); /* clear rolls next destination; early exit does not */
     returnToHub();
   }
   function hideMazeCollapseHud(){
@@ -1581,9 +1673,9 @@
   function finishMaze(){
     if(!maze||maze.done) return;
     maze.done=true;
+    maze.exitArmT=0.85; /* brief delay so landing on the beacon doesn't auto-warp home */
     hideMazeCollapseHud();
     mazeExitBeacon.visible=false;
-    /* Win exit: opposite corner — never under the chest (avoids auto-warp + hub toast leak) */
     mazeStartPortal.visible=false;
     mazeExitPortal.position.set(maze.exitX,1.7,maze.exitZ);
     mazeExitPortal.visible=true;
@@ -1609,7 +1701,14 @@
       if(chestOvIcon) chestOvIcon.textContent='\uD83D\uDD2B'; /* 🔫 */
       if(chestOvLabel) chestOvLabel.textContent='RAYGUN UNLOCKED';
       state='play';
-      finishMaze();
+      /* resume the maze — magnet is live; escape the beacon to open the win portal.
+         (Previously finishMaze() ran here, which froze coins via maze.done early-return
+         and spawned the portal at the far exit while the player was still at the chest.) */
+      if(maze&&!maze.done){
+        mazeExitBeacon.position.set(maze.exitX,0.08,maze.exitZ);
+        mazeExitBeacon.visible=true;
+        toastQueue.push('ESCAPE THE BEACON'); showNextToast();
+      }
     },2200);
   }
   function mazeTryHubPortal(portal){
@@ -1659,8 +1758,27 @@
     if(maze.done){
       mazeExitPortal.rotation.y+=1.4*dt;
       mazeExitPortal.scale.setScalar(1+Math.sin(elapsed*2.5)*0.06);
-      mazeTryHubPortal(mazeExitPortal);
+      if(maze.exitArmT>0) maze.exitArmT-=dt;
+      else mazeTryHubPortal(mazeExitPortal);
+      /* keep leftover coins spinning after the win so the floor doesn't freeze */
+      for(var dci=0;dci<maze.coins.length;dci++){
+        var dcoin=maze.coins[dci];
+        if(!dcoin.alive) continue;
+        dcoin.mesh.rotation.y+=2.4*dt;
+        dcoin.mesh.position.y=0.85+Math.sin(elapsed*3+dcoin.phase)*0.08;
+      }
       return;
+    }
+
+    /* magnet unlocked: reach the exit beacon to clear the maze */
+    if(maze.magnet&&mazeExitBeacon.visible
+       &&Math.hypot(pos.x-maze.exitX,pos.z-maze.exitZ)<2.2){
+      finishMaze();
+      return;
+    }
+    if(mazeExitBeacon.visible){
+      mazeExitBeacon.rotation.y+=1.8*dt;
+      mazeExitBeacon.position.y=0.08+Math.sin(elapsed*4)*0.04;
     }
 
     maze.t-=dt;
@@ -1725,6 +1843,13 @@
           toastQueue.push('GATE OPEN'); showNextToast();
           thudSfx(); badgeSfx(); spawnShock(gw.x,gw.z);
           spendCoinsTo(gw.x, MAZE_WALL_H*0.55, gw.z, g.cost, null);
+          /* temporary speed boost — same pad boost as the hub */
+          boostT=BOOST_TIME;
+          if(raygunT<=0)outline.material.color.setHex(BLUE);
+          var gsp=Math.hypot(vel.x,vel.z);
+          if(gsp>0.5){vel.x*=1.25;vel.z*=1.25;}
+          else {vel.x+=input.x*6;vel.z+=input.y*6;}
+          boostSfx(); fovPulse=0.22;
         } else if(maze.denyT<=0){
           maze.denyT=1.4;
           toastQueue.push('NEED '+g.cost+' GOLD'); showNextToast();
@@ -1770,7 +1895,7 @@
       }
     }
 
-    /* chest → magnet unlock overlay, then hub portal at the chest */
+    /* chest → magnet unlock overlay, then escape the beacon to finish */
     if(!maze.chestOpen&&Math.hypot(pos.x-maze.chestX,pos.z-maze.chestZ)<1.35){
       maze.chestOpen=true; maze.magnet=true;
       maze.chestAnim=1;
@@ -2215,18 +2340,20 @@
     returnToHub();
   }
 
-  /* corridor coins: pre-placed weave along the pipe walls */
-  var corrCoins=[]; /* built after coin geometry is defined, see buildCorrCoins() */
-  /* sliders: ink cubes oscillating across the pipe */
+  /* corridor coins: ordered climb (see buildCorrCoins) */
+  var corrCoins=[]; /* built after coin geometry is defined */
+  var CORR_LIVE=14, CORR_SEG_LEN=7, CORR_SAFE_X=6.6, CORR_BULLET_CAP=14;
+  var corrFailSeg=0;
+  /* sliders: stay in the kill channel so wall-safe coins aren't contested */
   var sliders=[];
-  [ -28,-52,-76,-100 ].forEach(function(sz,idx){
+  [ -32,-68,-105 ].forEach(function(sz,idx){
     var m=corrReg(new THREE.Mesh(new THREE.BoxGeometry(1.7,1.7,1.7),
       new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
-    sliders.push({mesh:m,z:sz,amp:7,speed:0.9+idx*0.25,phase:idx*1.7});
+    sliders.push({mesh:m,z:sz,amp:3.6,speed:0.7+idx*0.18,phase:idx*1.7});
   });
   /* gates: rotating ink bars over the pipe center */
   var gates=[];
-  [ -40,-88 ].forEach(function(gz,idx){
+  [ -48,-95 ].forEach(function(gz,idx){
     var m=corrReg(new THREE.Mesh(new THREE.BoxGeometry(12,0.8,0.7),
       new THREE.MeshBasicMaterial({color:INK})));
     m.position.set(0,0.9,gz);
@@ -2864,7 +2991,8 @@
     }
   }
 
-  /* corridor coins: pre-placed weave, rebuilt on each entry */
+  /* corridor coins: 14 ordered pickups in 2 segments, parked on safe walls.
+     Portal stays closed until the full sequence clears. */
   function buildCorrCoins(){
     if(!corrCoins.length){
       for(var i=0;i<26;i++){
@@ -2874,28 +3002,51 @@
         corrCoins.push({mesh:m,alive:false,x:0,z:0});
       }
     }
+    /* side runs of 3–4 on each wall → few channel crossings, wall ride stays safe */
+    var sides=[1,1,1,1,-1,-1,-1,1,1,1,-1,-1,-1,-1];
+    var z0=CORR_START-12, z1=CORR_END+22, dz=(z0-z1)/(CORR_LIVE-1);
     for(var j=0;j<corrCoins.length;j++){
       var c=corrCoins[j];
-      c.z=CORR_START-14-j*4.4;
-      c.x=Math.sin(j*0.55)*7.5;      /* weave up the walls */
-      c.alive=true;
-      c.mesh.material.color.setHex(GOLD);
-      c.mesh.scale.setScalar(1);
-      c.mesh.position.set(c.x,0,c.z); /* y set per-frame (bob) */
-      c.mesh.visible=true;
+      if(j<CORR_LIVE){
+        c.z=z0-j*dz;
+        c.x=sides[j]*CORR_SAFE_X;
+        c.alive=true;
+        c.mesh.material.color.setHex(GOLD);
+        c.mesh.scale.setScalar(1);
+        c.mesh.position.set(c.x,0,c.z);
+        c.mesh.visible=true;
+      } else {
+        c.alive=false; c.mesh.visible=false;
+      }
     }
-    coinIndex=0; coinBlinkT=0; corrPortalActive=true;
-    exitPortal.visible=true;
+    coinIndex=0; coinBlinkT=0; corrFailSeg=0;
+    corrPortalActive=false; /* must clear the coin run to open the exit */
+    exitPortal.visible=false;
   }
-  function failCoinSequence(){ /* wrong coin: everything blinks red, then the run resets */
-    coinBlinkT=1.1;
+  function corrSegStartOf(idx){ return Math.floor(idx/CORR_SEG_LEN)*CORR_SEG_LEN; }
+  function failCoinSequence(){
+    /* wrong coin: blink + reset the current segment only (prior segments stay cleared) */
+    corrFailSeg=corrSegStartOf(coinIndex);
+    coinBlinkT=0.85;
     thudSfx();
-    for(var i=0;i<corrCoins.length;i++){
+    for(var i=corrFailSeg;i<CORR_LIVE;i++){
       corrCoins[i].alive=false;
       corrCoins[i].mesh.visible=true;
       corrCoins[i].mesh.material.color.setHex(RED);
       corrCoins[i].mesh.scale.setScalar(1);
     }
+  }
+  function clearCorrSequence(){
+    if(corrPortalActive) return;
+    corrPortalActive=true;
+    exitPortal.visible=true;
+    var prize=400;
+    coinScore+=prize; updateHUD();
+    toastQueue.push('COIN RUN CLEAR'); showNextToast();
+    toastQueue.push('PORTAL OPEN +'+prize); showNextToast();
+    boomSfx(); badgeSfx(); fovPulse=0.3;
+    spawnShock(exitPortal.position.x,exitPortal.position.z);
+    awardBadge('climber');
   }
   /* nautilus coins: evenly spaced along the path; all collected = +1000 */
   var spiralCoins=[], spiralBonusGiven=false;
@@ -3159,11 +3310,12 @@
     sm.rotation.x=-Math.PI/2; sm.visible=false; scene.add(sm);
     shocks.push({mesh:sm,t:0});
   }
-  function spawnShock(x,z){
+  function spawnShock(x,z,color){
     for(var i=0;i<shocks.length;i++){
       var sh=shocks[i];
       if(!sh.mesh.visible){
         sh.mesh.visible=true; sh.t=0.35;
+        sh.mesh.material.color.setHex(color!==undefined?color:INK);
         sh.mesh.position.set(x,terrainH(x,z)+0.07,z);
         return;
       }
@@ -3287,6 +3439,9 @@
   var combo=0, coinScore=0, scoreBase=0, pounding=false, poundReady=false, coyoteT=0;
   var raceState='none', raceT=0, raceS=0, racePlace=1, raceFin=null, raceRecov=0, bumpCool=0;
   var raceTurbo=false; /* red start powerup — clears on hub portal */
+  var danceNotes=[], danceT=0, danceCombo=0, danceMult=1, danceScore=0;
+  var danceHits=0, danceMiss=0, danceBeat=-1, danceState='none', danceJudgeT=0;
+  var danceDipT=0;              /* camera dip on miss */
   var playerProxy={
     get x(){return pos.x;}, set x(v){pos.x=v;},
     get z(){return pos.z;}, set z(v){pos.z=v;},
@@ -3302,8 +3457,8 @@
   var raygunUnlocked=false, raygunT=0, rayFireCool=0, raygunSpawnTimer=8;
   var major=null, majorDone=false; /* major boss: hub seq step 1 */
   var portalUnlocked=false;        /* hub ramp portal: HUB_PORTAL_WAIT after each hub arrival */
-  var HUB_PORTAL_WAIT=30;
-  var hubSeq=0;                    /* 0 nautilus … 5 viper, 6 maze, 7 circuit */
+  var HUB_PORTAL_WAIT=15;
+  var hubSeq=0;                    /* random destination index: 0 nautilus … 8 pulse */
   var hubTimer=0;                  /* time spent in hub rest this visit */
   var obs=null, obsY=OBS_FLOAT, obsX=0, obsZ=0, inkFill=0, INK_CAP=6, obsDead=false;
   var lastInkT=-99, inkDecayT=0;
@@ -3330,6 +3485,40 @@
   function boostSfx(){ tone(320,0.35,'sawtooth',0.09,1100); }
   function thudSfx(){ tone(140,0.16,'sine',0.15,50); }
   function boomSfx(){ tone(90,0.28,'sine',0.2,36); tone(45,0.3,'triangle',0.12); }
+  function danceKick(){
+    if(!AC)return; var t=AC.currentTime;
+    var o=AC.createOscillator(),g=AC.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(150,t);
+    o.frequency.exponentialRampToValueAtTime(46,t+0.12);
+    g.gain.setValueAtTime(0.22,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
+    o.connect(g).connect(AC.destination); o.start(t); o.stop(t+0.18);
+  }
+  function danceBass(step){
+    if(!AC)return; var t=AC.currentTime;
+    var notes=[55,55,73.4,65.4]; var f=notes[step%notes.length];
+    var o=AC.createOscillator(),g=AC.createGain(),lp=AC.createBiquadFilter();
+    o.type='sawtooth'; o.frequency.setValueAtTime(f,t);
+    lp.type='lowpass'; lp.frequency.setValueAtTime(420,t);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.06,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+DANCE_BEAT*0.9);
+    o.connect(lp).connect(g).connect(AC.destination); o.start(t); o.stop(t+DANCE_BEAT);
+  }
+  function danceHitSfx(c){
+    if(!AC)return; var t=AC.currentTime;
+    var f=523.25*Math.pow(2,Math.min(24,c)/12);
+    var o=AC.createOscillator(),g=AC.createGain();
+    o.type='triangle'; o.frequency.setValueAtTime(f,t);
+    g.gain.setValueAtTime(0.09,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.14);
+    o.connect(g).connect(AC.destination); o.start(t); o.stop(t+0.16);
+  }
+  function danceMissSfx(){
+    if(!AC)return; var t=AC.currentTime;
+    var o=AC.createOscillator(),g=AC.createGain();
+    o.type='square'; o.frequency.setValueAtTime(140,t);
+    o.frequency.exponentialRampToValueAtTime(80,t+0.18);
+    g.gain.setValueAtTime(0.07,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.2);
+    o.connect(g).connect(AC.destination); o.start(t); o.stop(t+0.22);
+  }
 
   function noiseBuf(dur){
     var b=AC.createBuffer(1,AC.sampleRate*dur,AC.sampleRate);
@@ -3454,13 +3643,19 @@
     {id:'heart',   g:'LF', name:'LIFELINE', how:'Pick up a heart drop to restore a life.'},
     {id:'speed3',  g:'SD', name:'SPEED DEMON', how:'Grab 3 blue speed pads in one run.'},
     {id:'tollbreaker', g:'TB', name:'TOLLBREAKER', how:'Clear Tollbearer\'s Maze before it collapses.'},
-    {id:'tightpurse', g:'TP', name:'TIGHT PURSE', how:'Clear Tollbearer\'s Maze with 30 or more seconds left.'}
+    {id:'tightpurse', g:'TP', name:'TIGHT PURSE', how:'Clear Tollbearer\'s Maze with 30 or more seconds left.'},
+    {id:'rhythm', g:'PU', name:'PERFECT PULSE', how:'Finish THE PULSE with 95% or higher accuracy.'},
+    {id:'climber', g:'CL', name:'THE CLIMB', how:'Clear the corridor coin run and open the exit portal.'}
   ];
   var BADGE_IDS={};
   for(var bi=0;bi<BADGES.length;bi++) BADGE_IDS[BADGES[bi].id]=BADGES[bi];
   var earned={};
   countdownEl=document.getElementById('countdown');
   placeHudEl=document.getElementById('placeHud');
+  var danceHudEl=document.getElementById('danceHud');
+  var danceComboEl=document.getElementById('danceCombo');
+  var danceMultEl=document.getElementById('danceMult');
+  var danceJudgeEl=document.getElementById('danceJudge');
   miniEl=document.getElementById('minimap');
   miniCtx=miniEl.getContext('2d');
   hitWhyEl=document.getElementById('hitWhy');
@@ -4019,7 +4214,7 @@
     boss=null; bossTimer=45; bossMesh.visible=false; bossShadow.visible=false;
     major=null; majorDone=false; viper=null; FIELD_OFF=false;
     bossExitActive=false; bossExitPortal.visible=false;
-    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setViperVisible(false); setMazeVisible(false); clearMazeLive(); setRaceVisible(false); raceState='none';
+    level='arena'; setCorridorVisible(false); setSpiralVisible(false); setLavaVisible(false); setViperVisible(false); setMazeVisible(false); clearMazeLive(); setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     setFieldVisible(true);
     scene.fog=null; scene.background=WHITE_BG;
     lastGroundY=RADIUS; dropTimer=1.2;
@@ -4036,7 +4231,8 @@
     inkDrops.forEach(function(d){d.alive=false;d.mesh.visible=false;d.tele.visible=false;});
     blotches.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     coinIndex=0; coinBlinkT=0; corrPortalActive=false;
-    portalUnlocked=false; hubSeq=0; hubTimer=0;
+    portalUnlocked=false; hubTimer=0;
+    hubSeq=(Math.random()*HUB_SEQ_LEN)|0; /* random first destination each run */
     hideHubPortalHud();
     raygunUnlocked=false; raygunT=0; rayFireCool=0; raygunSpawnTimer=8;
     raySlotEl.classList.remove('got');
@@ -4047,6 +4243,7 @@
     var keyFlies=document.querySelectorAll('.rayFly');
     for(var ki=0;ki<keyFlies.length;ki++)keyFlies[ki].parentNode.removeChild(keyFlies[ki]);
     hubPortal.visible=false; hubPortalShadow.visible=false;
+
     rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
     rayBolts.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     majorMesh.visible=false; majorShadow.visible=false;
@@ -4067,6 +4264,9 @@
     coinsEl.classList.remove('bump');
     var fliers=document.querySelectorAll('.coinFly');
     for(var fi=0;fi<fliers.length;fi++)fliers[fi].parentNode.removeChild(fliers[fi]);
+    /* seed the hub with 4 coins so a first-draw maze is still payable */
+    for(var spi=0;spi<4;spi++) spawnPip();
+    pipTimer=4;
     headG.visible=true;
     updateHUD();
   }
@@ -4193,6 +4393,7 @@
   /* Tap: hop on ground; slam only after a real hop / ramp launch (not edge wobble) */
   function requestHop(){
     if(state!=='play')return;
+    if(level==='dance')return; /* PULSE is roll-to-trace: no jumping */
     /* near the floor (incl. landing bounce) always hops — never slams */
     if(grounded||coyoteT>0){ hop(1); return; }
     var clear=pos.y-RADIUS-terrainH(pos.x,pos.z);
@@ -4480,31 +4681,57 @@
     spawnAimed();
   }
 
-  /* Corridor threats: a relentless stream from up-corridor. Bullets live only
-     in the flat channel (|x|<5.3) — wall riding above that line is the dodge,
-     but the coin weave keeps dragging you back through the kill zone. */
+  /* Corridor threats: bullets live in the flat channel (|x|<~5.3).
+     Wall-safe coins sit outside that — during the sequence we prefer
+     telegraphable channel patterns and never hard-lead a wall rider. */
+  function corridorAliveBullets(){
+    var n=0;
+    for(var i=0;i<bullets.length;i++) if(bullets[i].alive) n++;
+    return n;
+  }
+  function fireCorrBullet(x,z,vx,vz){
+    if(corridorAliveBullets()>=CORR_BULLET_CAP) return false;
+    fireBullet(x,z,vx,vz);
+    return true;
+  }
   function corridorThreat(){
+    if(corridorAliveBullets()>=CORR_BULLET_CAP) return;
+    var seqActive=!corrPortalActive; /* ease fire until the coin run is cleared */
     var roll=Math.random();
     var sz=pos.z-45;
-    var sp=12+Math.min(elapsed*0.04,4);
-    if(roll<0.3){ /* led aimed pair */
-      var ax=Math.max(-4.5,Math.min(4.5,pos.x+vel.x*0.35));
-      var ddx=pos.x-ax, ddz=pos.z-sz, dd=Math.hypot(ddx,ddz)||1;
-      fireBullet(ax,sz,ddx/dd*sp,ddz/dd*sp);
-      fireBullet(ax,sz-2.5,ddx/dd*(sp+1),ddz/dd*(sp+1));
-    } else if(roll<0.55){ /* 5-lane fan across the whole channel */
-      for(var j=-2;j<=2;j++)fireBullet(j*2.3,sz,j*0.35,sp);
-    } else if(roll<0.75){ /* double pinch: four converging from the edges */
-      fireBullet(-4.8,sz,1.6,sp);   fireBullet(4.8,sz,-1.6,sp);
-      fireBullet(-4.8,sz-4,1.2,sp); fireBullet(4.8,sz-4,-1.2,sp);
-    } else if(roll<0.92){ /* burst: five quick jittered aimed shots */
-      for(var k=0;k<5;k++){
-        var bx=Math.max(-4.5,Math.min(4.5,pos.x+(Math.random()-0.5)*3.5));
-        var bdx=pos.x-bx, bdz=pos.z-sz, bd=Math.hypot(bdx,bdz)||1;
-        fireBullet(bx,sz,bdx/bd*(sp+k*0.5),bdz/bd*(sp+k*0.5));
+    var sp=(seqActive?9.5:12)+Math.min(elapsed*(seqActive?0.025:0.04),seqActive?2.5:4);
+    /* if the player is wall-riding, aim into the channel — not at them */
+    var aimX=Math.abs(pos.x)>5.3?0:Math.max(-4.2,Math.min(4.2,pos.x+vel.x*0.25));
+    if(seqActive){
+      if(roll<0.42){ /* fan — shrink if near the cap */
+        for(var j=-2;j<=2;j++) fireCorrBullet(j*2.3,sz,j*0.25,sp);
+      } else if(roll<0.72){ /* lane rain: 2–3 straight shots */
+        var nr=2+(Math.random()<0.5?1:0);
+        for(var m=0;m<nr;m++) fireCorrBullet(-4.2+Math.random()*8.4,sz,0,sp+Math.random()*1.5);
+      } else { /* soft pinch: one pair from the edges */
+        fireCorrBullet(-4.6,sz,1.3,sp); fireCorrBullet(4.6,sz,-1.3,sp);
       }
-    } else { /* lane rain: three random straight lanes */
-      for(var m=0;m<3;m++)fireBullet(-4.5+Math.random()*9,sz,0,sp+Math.random()*2);
+      return;
+    }
+    /* portal open — final sprint can get spicier */
+    if(roll<0.28){
+      var ax=Math.abs(pos.x)>5.3?0:aimX;
+      var ddx=pos.x-ax, ddz=pos.z-sz, dd=Math.hypot(ddx,ddz)||1;
+      if(Math.abs(pos.x)>5.3){ ddx=0; ddz=-1; dd=1; }
+      fireCorrBullet(ax,sz,ddx/dd*sp,ddz/dd*sp);
+      fireCorrBullet(ax,sz-2.5,ddx/dd*(sp+1),ddz/dd*(sp+1));
+    } else if(roll<0.55){
+      for(var j2=-2;j2<=2;j2++) fireCorrBullet(j2*2.3,sz,j2*0.35,sp);
+    } else if(roll<0.75){
+      fireCorrBullet(-4.8,sz,1.6,sp);   fireCorrBullet(4.8,sz,-1.6,sp);
+      fireCorrBullet(-4.8,sz-4,1.2,sp); fireCorrBullet(4.8,sz-4,-1.2,sp);
+    } else if(roll<0.9){
+      for(var k=0;k<3;k++){
+        var bx=Math.max(-4.2,Math.min(4.2,aimX+(Math.random()-0.5)*2.5));
+        fireCorrBullet(bx,sz,0,sp+k*0.4);
+      }
+    } else {
+      for(var m2=0;m2<3;m2++) fireCorrBullet(-4.5+Math.random()*9,sz,0,sp+Math.random()*2);
     }
   }
 
@@ -4670,6 +4897,89 @@
     }
   }
   function raceLaneOffset(i){ return (i-1.5)*3.4; }
+  function setDanceVisible(v){
+    for(var i=0;i<danceMeshes.length;i++)danceMeshes[i].visible=v;
+    if(v){
+      danceNotePool.forEach(function(np){ np.group.visible=false; });
+      danceExitPortal.visible=false;
+    } else {
+      if(danceHudEl) danceHudEl.style.display='none';
+      pPoints.material.color.setHex(0xd8ecff); /* undo fire tint for other levels */
+    }
+  }
+  function enterDance(){
+    level='dance';
+    clearThreats();
+    setCorridorVisible(false);
+    setSpiralVisible(false);
+    setObsVisible(false);
+    setLavaVisible(false);
+    setViperVisible(false);
+    clearViperLive();
+    setMazeVisible(false); clearMazeLive();
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
+
+    hideHubPortalHud();
+    hubPortal.visible=false; hubPortalShadow.visible=false;
+    scene.fog=null; scene.background=WHITE_BG;
+    inkMeterEl.style.display='none';
+    if(bossHudEl) bossHudEl.classList.remove('on');
+    ballMat.color.setHex(RED);
+    exitVoidLook();
+    setArenaVisible(false);
+    pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
+    boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
+    rayGunPads.forEach(function(rp){rp.alive=false;rp.mesh.visible=false;rp.shadow.visible=false;});
+    heartDrop=null; heartMesh.visible=false; heartShadow.visible=false;
+    setDanceVisible(true);
+    danceNotes=danceChart(1+Math.floor(Math.random()*0x7fffffff)); /* fresh song each entry */
+    danceNotes.forEach(function(n){ n.hit=false; n.dead=false; n.pool=null; });
+    danceT=-3; danceCombo=0; danceMult=1; danceScore=0; dancePortalT=0;
+    danceHits=0; danceMiss=0; danceBeat=-1; danceState='intro'; danceJudgeT=0;
+    danceDipT=0; dancePadFlash=[0,0,0,0];
+    sparks.length=0; updateSparks(0); /* no leftover sparks from other levels */
+    pos.set(DANCE_LANES[1],RADIUS,DANCE_HITZ); vel.set(0,0,0); grounded=true;
+    danceHudEl.style.display='block';
+    danceComboEl.textContent=''; danceMultEl.textContent=''; danceJudgeEl.textContent='';
+    toastQueue.push('THE PULSE'); showNextToast();
+    toastQueue.push('ROLL ONTO THE MATCHING SYMBOL');
+    spawnShock(pos.x,pos.z,0xffffff); fovPulse=0.3; boomSfx();
+  }
+  function danceJudge(txt,col){
+    danceJudgeEl.textContent=txt;
+    danceJudgeEl.style.color=col;
+    danceJudgeEl.style.opacity=1;
+    danceJudgeT=0.5;
+  }
+  function danceBallLane(){
+    var li=0, bd=1e9;
+    for(var i=0;i<DANCE_LANES.length;i++){
+      var d=Math.abs(pos.x-DANCE_LANES[i]);
+      if(d<bd){bd=d;li=i;}
+    }
+    return {lane:li,dist:bd};
+  }
+  function danceHitNote(note,bd){
+    note.hit=true;
+    danceHits++; danceCombo++;
+    danceMult=Math.min(8,1+Math.floor(danceCombo/5));
+    var pts=10*danceMult; danceScore+=pts; coinScore+=pts;
+    danceHitSfx(danceCombo);
+    spawnShock(DANCE_LANES[note.lane],DANCE_HITZ,DANCE_SYMCOL[note.lane]);
+    if(danceMult>=4)
+      burstSparks(DANCE_LANES[note.lane],0.7,DANCE_HITZ,danceMult>=8?14:6,danceMult>=8?7:4.5);
+    danceJudge(bd<0.8?'PERFECT':'GOOD', bd<0.8?'#18a0e8':'#f2b705');
+    if(danceCombo===10){ danceJudge('ON FIRE!','#ff7a1a'); fovPulse=0.25; }
+    if(danceCombo>0&&danceCombo%25===0){ fovPulse=0.3; badgeSfx(); }
+    updateHUD();
+  }
+  function danceMissNote(lane){
+    if(danceCombo>2)danceMissSfx();
+    danceMiss++; danceCombo=0; danceMult=1;
+    danceJudge('MISS','#e8262a');
+    dancePadFlash[lane]=0.45;
+    danceDipT=0.3;
+  }
   function enterRace(){
     level='race';
     clearThreats();
@@ -4680,6 +4990,8 @@
     setViperVisible(false);
     clearViperLive();
     setMazeVisible(false); clearMazeLive();
+    setDanceVisible(false); danceState='none';
+
     hideHubPortalHud();
     hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
@@ -5054,7 +5366,7 @@
     setLavaVisible(false);
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5075,6 +5387,7 @@
     heartMesh.position.set(heartDrop.x,terrainH(heartDrop.x,heartDrop.z)+1,heartDrop.z);
     heartMesh.visible=true;
     toastQueue.push(raygunUnlocked?'THE CLIMB \u00B7 RAYGUN READY':'THE CLIMB'); showNextToast();
+    toastQueue.push('COLLECT THE COINS IN ORDER');
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
   }
   function returnToHub(){
@@ -5088,7 +5401,7 @@
     clearViperLive();
     setMazeVisible(false);
     clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     raceTurbo=false;
     if(raygunT<=0)outline.material.color.setHex(INK);
     scene.fog=null; scene.background=WHITE_BG;
@@ -5111,11 +5424,16 @@
     hubTimer=0; portalUnlocked=false;
     hubPortal.visible=false; hubPortalShadow.visible=false;
     hideHubPortalHud();
+
     stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
     spawnShock(0,0); fovPulse=0.3; boomSfx();
   }
   function advanceHubSeq(){
-    hubSeq=(hubSeq+1)%HUB_SEQ_LEN;
+    /* pick a random destination; avoid immediate repeat when possible */
+    var prev=hubSeq, next;
+    do { next=(Math.random()*HUB_SEQ_LEN)|0; }
+    while(HUB_SEQ_LEN>1 && next===prev);
+    hubSeq=next;
   }
   function enterHubDestination(){
     portalUnlocked=false;
@@ -5128,12 +5446,13 @@
     else if(hubSeq===4) enterLava();
     else if(hubSeq===5) enterViper();
     else if(hubSeq===6) enterMaze();
-    else enterRace();
+    else if(hubSeq===7) enterRace();
+    else enterDance();
   }
   function failToHub(){
-    /* died outside hub rest: bank score, bounce home, restart sequence at 0 pts */
+    /* died outside hub rest: bank score, bounce home, roll a fresh destination */
     var banked=bankDeathScore();
-    hubSeq=0;
+    advanceHubSeq();
     clearThreats();
     FIELD_OFF=false;
     major=null;
@@ -5155,7 +5474,7 @@
     viper=null;
     setMazeVisible(false);
     clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     scene.fog=null; scene.background=WHITE_BG;
     returnToHub();
     resetRunScore();
@@ -5184,7 +5503,7 @@
     setObsVisible(false);
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     setArenaVisible(false);
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5216,7 +5535,7 @@
     setLavaVisible(false);
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5261,7 +5580,7 @@
     setLavaVisible(false);
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     scene.fog=null; scene.background=WHITE_BG;
     setArenaVisible(false);
     pips.forEach(function(pp){pp.alive=false;pp.mesh.visible=false;pp.shadow.visible=false;});
@@ -5470,7 +5789,7 @@
     setObsVisible(false);
     setLavaVisible(false);
     setMazeVisible(false); clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     hideHubPortalHud();
     hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
@@ -5890,7 +6209,7 @@
     };
     FIELD_OFF=true; setFieldVisible(false);
     setMazeVisible(false); clearMazeLive();
-    setRaceVisible(false); raceState='none';
+    setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
     clearMajorLasers(); clearInkShots();
     bullets.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     chords.forEach(function(c){c.alive=false;c.mesh.visible=false;});
@@ -5989,7 +6308,8 @@
     var s=Math.hypot(vel.x,vel.z);
     if(s>maxE){vel.x*=maxE/s;vel.z*=maxE/s;}
 
-    vel.y-=G*dt;
+    if(level==='dance') vel.y-=(vel.y>0?DANCE_G_UP:DANCE_G_DOWN)*dt;
+    else vel.y-=G*dt;
     var ppx=pos.x, ppz=pos.z, ppBottom=pos.y-RADIUS;
     pos.x+=vel.x*dt; pos.y+=vel.y*dt; pos.z+=vel.z*dt;
 
@@ -6096,6 +6416,11 @@
       if(pos.z<lavaExitPad.z-10){ pos.z=lavaExitPad.z-10; if(vel.z<0) vel.z*=-REST; }
     } else if(level==='maze'){
       mazeResolveCollisions();
+    } else if(level==='dance'){
+      var dl=DANCE_LANES[0]-1.6, dr=DANCE_LANES[3]+1.6;
+      if(pos.x<dl){pos.x=dl;if(vel.x<0)vel.x=0;}
+      if(pos.x>dr){pos.x=dr;if(vel.x>0)vel.x=0;}
+      pos.z=DANCE_HITZ; vel.z=0;
     } else if(level==='race'){ /* road rules handle straying */
     } else { /* nautilus: square floor bounds */
       if(pos.x> SP_BOUND){pos.x= SP_BOUND; if(vel.x>0)vel.x=-vel.x*REST;}
@@ -6147,7 +6472,12 @@
       spawnTimer-=dt;
       if(spawnTimer<=0){
         corridorThreat();
-        spawnTimer=Math.max(storm>0?0.18:0.22,(0.7-elapsed*0.005)/(storm>0?1.6:1));
+        /* slower cadence while the coin sequence is active; spike after portal opens */
+        var seqActive=!corrPortalActive;
+        var baseIv=seqActive?1.05:0.55;
+        var floorIv=seqActive?0.42:(storm>0?0.2:0.24);
+        var stormDiv=storm>0?(seqActive?1.25:1.55):1;
+        spawnTimer=Math.max(floorIv,(baseIv-elapsed*0.003)/stormDiv);
       }
     } else if(isHubRest()){
       spawnTimer-=dt;
@@ -6527,6 +6857,167 @@
       stepViper(dt);
     } else if(level==='maze'){
       stepMaze(dt);
+
+    } else if(level==='dance'){
+      danceT+=dt;
+      var danceBL=danceBallLane();
+      if(danceJudgeT>0){ danceJudgeT-=dt; if(danceJudgeT<=0)danceJudgeEl.style.opacity=0; }
+      if(danceState==='intro'){
+        var cnum=Math.ceil(-danceT);
+        if(danceT<0){ danceComboEl.textContent=cnum>0?cnum:''; }
+        if(danceT>=0){ danceState='play'; danceComboEl.textContent=''; danceBeat=0; }
+      }
+      if(danceState==='play'){
+        var curBeat=Math.floor(danceT/DANCE_BEAT);
+        if(curBeat>danceBeat&&danceT>=0){
+          danceBeat=curBeat;
+          danceKick(); danceBass(curBeat);
+        }
+      }
+      for(var ni=0;ni<danceNotes.length;ni++){
+        var note=danceNotes[ni];
+        if(note.dead)continue;
+        var appear=note.t-DANCE_LEAD;
+        if(danceT<appear-0.1)continue;
+        var nz=DANCE_SPAWNZ+(danceT-appear)*DANCE_SPEED;
+        if(!note.hit&&!note.pool){
+          for(var pj=0;pj<danceNotePool.length;pj++){
+            if(!danceNotePool[pj].note){ note.pool=danceNotePool[pj]; danceNotePool[pj].note=note; break; }
+          }
+          if(note.pool){
+            note.pool.group.visible=true;
+            for(var sk=0;sk<4;sk++){
+              var psym=note.pool.syms[sk];
+              psym.visible=(sk===note.lane);
+              psym.material.opacity=1;
+              psym.children.forEach(function(c){ c.material.opacity=1; });
+            }
+          }
+        }
+        if(note.pool){
+          if(note.hit){
+            /* hit pop: 0.22s rise + swell + fade instead of a 1-frame vanish */
+            if(note.popT===undefined){ note.popT=0.22; note.popZ=nz; note.popS=note.pool.group.scale.x; }
+            note.popT-=dt;
+            var pk=Math.max(0,note.popT/0.22);
+            note.pool.group.position.set(DANCE_LANES[note.lane],0.35+(1-pk)*2.4,note.popZ);
+            note.pool.group.scale.setScalar(note.popS*(1+(1-pk)*1.1));
+            var hsym=note.pool.syms[note.lane];
+            hsym.material.opacity=pk;
+            hsym.children.forEach(function(c){ c.material.opacity=pk; });
+            if(note.popT<=0){
+              note.pool.group.visible=false;
+              note.pool.note=null; note.pool=null; note.dead=true;
+            }
+            continue;
+          }
+          note.pool.group.position.set(DANCE_LANES[note.lane],0.05,nz);
+          var closeK=Math.max(0,Math.min(1,1-(DANCE_HITZ-nz)/10));
+          var beatPulse=Math.max(0,Math.sin(danceT/DANCE_BEAT*Math.PI*2))*0.07;
+          note.pool.group.scale.setScalar(0.85+0.35*closeK+beatPulse*closeK);
+          note.pool.group.position.y=0.05+closeK*0.25;
+        }
+        if(!note.hit&&!note.dead&&danceState==='play'
+           &&danceT>=note.t-DANCE_W&&danceT<=note.t+DANCE_W){
+          if(danceBL.lane===note.lane&&danceBL.dist<DANCE_TOL){
+            danceHitNote(note,danceBL.dist);
+          }
+        }
+        if(!note.hit&&!note.dead&&danceT>note.t+DANCE_W){
+          note.dead=true;
+          if(note.pool){ note.pool.note=null; note.pool.group.visible=false; note.pool=null; }
+          danceMissNote(note.lane);
+        }
+      }
+      /* beat-synced floor: strips, pads and hit line breathe with the kick */
+      var beatK=0;
+      if(danceState==='play'&&danceT>=0)
+        beatK=Math.max(0,1-((danceT%DANCE_BEAT)/DANCE_BEAT)/0.4);
+      var onFire=danceState==='play'&&danceCombo>=10;
+      for(var li2=0;li2<4;li2++){
+        if(onFire){
+          /* per-lane flicker so the fire feels alive, still kicked by the beat */
+          var flick=0.35+0.65*Math.abs(Math.sin(elapsed*17+li2*2.1)*Math.sin(elapsed*29+li2*0.8));
+          danceStrips[li2].material.color.copy(DANCE_FIRE_A).lerp(DANCE_FIRE_B,Math.min(1,flick*0.7+beatK*0.45));
+        } else {
+          danceStrips[li2].material.color.copy(DANCE_STRIP_DIM).lerp(DANCE_STRIP_LIT,beatK*0.8);
+        }
+        var padm=dancePads[li2].material;
+        if(dancePadFlash[li2]>0){
+          dancePadFlash[li2]-=dt;
+          var fk=Math.max(0,dancePadFlash[li2]/0.45);
+          padm.color.setHex(0xe8262a);
+          padm.opacity=0.32+fk*0.55;
+        } else {
+          padm.color.setHex(DANCE_SYMCOL[li2]);
+          padm.opacity=0.32+beatK*0.18;
+        }
+      }
+      danceHitLine.material.color.setHex(onFire?0xffa030:0xffffff);
+      danceHitLine.material.opacity=0.75+beatK*0.25;
+      danceHitLine.scale.y=1+beatK*0.8;
+      if(danceDipT>0)danceDipT-=dt;
+      /* sparks (combo bursts + finale confetti) render in this level too */
+      pPoints.visible=true;
+      if(onFire){
+        pPoints.material.color.setHex(0xff8c2a);
+        for(var fs=0;fs<4;fs++){
+          if(Math.random()<dt*20)
+            spawnSpark(DANCE_LANES[fs]+(Math.random()-0.5)*2.6,0.15,4-Math.random()*50,
+              (Math.random()-0.5)*0.6,2.5+Math.random()*3.5,0,0.35+Math.random()*0.4);
+        }
+      } else {
+        pPoints.material.color.setHex(0xd8ecff);
+      }
+      updateSparks(dt);
+      danceLock.position.set(DANCE_LANES[danceBL.lane],0.05,DANCE_HITZ);
+      var onLane=danceBL.dist<DANCE_TOL;
+      var lockGold=danceMult>=8;
+      danceLock.material.color.setHex(lockGold&&onLane?GOLD:(onLane?DANCE_SYMCOL[danceBL.lane]:0x556));
+      danceLock.material.opacity=onLane?(0.7+Math.sin(elapsed*(lockGold?14:8))*0.15):0.3;
+      danceLock.scale.setScalar((onLane?1:0.9)+(danceMult-1)*0.02+beatK*0.05);
+      danceBallGlow.position.set(pos.x,0.04,DANCE_HITZ);
+      danceBallGlow.material.color.setHex(lockGold?GOLD:(onLane?DANCE_SYMCOL[danceBL.lane]:0xffffff));
+      danceBallGlow.material.opacity=0.4+(danceMult-1)*0.035+beatK*0.12;
+      danceBallGlow.scale.setScalar(1+(danceMult-1)*0.09+beatK*0.08);
+      if(danceState==='play'){ /* 'done' keeps the accuracy tally on screen */
+        danceComboEl.textContent=danceCombo>1?danceCombo:'';
+        danceMultEl.textContent=danceMult>1?('\u00D7'+danceMult):'';
+      }
+      if(danceState==='play'&&danceNotes.length&&danceT>danceNotes[danceNotes.length-1].t+2.5){
+        danceState='done';
+        var total=danceHits+danceMiss;
+        var acc=total?Math.round(danceHits/total*100):0;
+        var prize=Math.round(danceScore*0.5)+acc*3;
+        coinScore+=prize;
+        if(acc>=95)awardBadge('rhythm');
+        danceComboEl.textContent=acc+'%';
+        danceMultEl.textContent=danceHits+'/'+total+' HITS';
+        toastQueue.push(acc>=95?'PERFECT PULSE +'+prize:('+'+prize+' COINS')); showNextToast();
+        badgeSfx(); fovPulse=0.35; updateHUD();
+        /* finale: shockwaves + confetti burst across the hit line */
+        spawnShock(pos.x,DANCE_HITZ,0xffffff);
+        spawnShock(DANCE_LANES[0],DANCE_HITZ,DANCE_SYMCOL[0]);
+        spawnShock(DANCE_LANES[3],DANCE_HITZ,DANCE_SYMCOL[3]);
+        for(var fl=0;fl<4;fl++)burstSparks(DANCE_LANES[fl],1.0,DANCE_HITZ,18,8);
+        shakeT=0.25; shakeX=0.4; shakeZ=0.2;
+        danceExitPortal.visible=true;
+        dancePortalT=0;
+        danceExitPortal.position.set(0,0.1,DANCE_SPAWNZ);
+      }
+      if(danceState==='done'){
+        dancePortalT+=dt;
+        var pz=DANCE_SPAWNZ+dancePortalT*DANCE_SPEED;
+        if(pz>DANCE_HITZ)pz=DANCE_HITZ;
+        danceExitPortal.position.set(0,0.1,pz);
+        danceExitPortal.rotation.z+=1.4*dt;
+        danceExitPortal.scale.setScalar(1.3+Math.sin(elapsed*2.5)*0.08);
+        if(Math.abs(pos.x-danceExitPortal.position.x)<2.2
+           &&Math.abs(pos.z-danceExitPortal.position.z)<2.2){
+          advanceHubSeq();
+          returnToHub();
+        }
+      }
 
     } else if(level==='race'){
       miniEl.style.display='block';
@@ -7383,7 +7874,7 @@
         }
       }
     } else if(level==='corridor'){
-      /* exit portal at the top of the climb → hub (next seq: Obsidian) */
+      /* exit portal unlocks only after the coin run clears */
       exitPortal.visible=corrPortalActive;
       if(corrPortalActive){
         exitPortal.rotation.y+=1.4*dt;
@@ -7392,27 +7883,26 @@
           exitCorridor();
         }
       }
-      /* sequence coins: collect in order; a wrong pick resets them all */
+      /* sequence coins: in order; wrong pick resets the current segment only */
       if(coinBlinkT>0){
         coinBlinkT-=dt;
         var blinkOn=((coinBlinkT*8)|0)%2===0;
-        for(i=0;i<corrCoins.length;i++)corrCoins[i].mesh.visible=blinkOn;
-        if(coinBlinkT<=0){ /* reappear, sequence restarts */
-          for(i=0;i<corrCoins.length;i++){
+        for(i=corrFailSeg;i<CORR_LIVE;i++) corrCoins[i].mesh.visible=blinkOn;
+        if(coinBlinkT<=0){
+          for(i=corrFailSeg;i<CORR_LIVE;i++){
             corrCoins[i].alive=true;
             corrCoins[i].mesh.visible=true;
             corrCoins[i].mesh.material.color.setHex(GOLD);
             corrCoins[i].mesh.scale.setScalar(1);
           }
-          coinIndex=0;
+          coinIndex=corrFailSeg;
         }
       } else {
-        for(i=0;i<corrCoins.length;i++){
+        for(i=0;i<CORR_LIVE;i++){
           var cc=corrCoins[i];
           if(!cc.alive)continue;
           cc.mesh.rotation.y+=4*dt;
           cc.mesh.position.y=terrainH(cc.x,cc.z)+0.75+Math.sin(elapsed*3+i)*0.08;
-          /* the next required coin pulses */
           cc.mesh.scale.setScalar(i===coinIndex?1.25+Math.sin(elapsed*6)*0.15:1);
           if(Math.hypot(pos.x-cc.x,pos.z-cc.z)<RADIUS+0.7&&Math.abs(pos.y-cc.mesh.position.y)<1.6){
             if(i!==coinIndex){ failCoinSequence(); break; }
@@ -7423,10 +7913,11 @@
             if(storm>0){stormCoins++; if(stormCoins>=5)awardBadge('stormer');}
             coinBlip(); updateHUD();
             flyCoin(cc.x,cc.mesh.position.y,cc.z);
-            if(coinIndex>=corrCoins.length){
-              toastQueue.push('COIN RUN CLEAR'); showNextToast();
-              boomSfx(); fovPulse=0.2;
+            if(coinIndex>0&&coinIndex%CORR_SEG_LEN===0&&coinIndex<CORR_LIVE){
+              toastQueue.push('CHECKPOINT'); showNextToast();
+              badgeSfx(); fovPulse=0.15;
             }
+            if(coinIndex>=CORR_LIVE) clearCorrSequence();
           }
         }
       }
@@ -7451,13 +7942,18 @@
           fovPulse=0.25; badgeSfx();
         }
       }
-      /* sliders: ink cubes sweeping the pipe */
+      /* sliders: channel sweepers — wall riders (|x|>5.5) are safe */
       for(i=0;i<sliders.length;i++){
         var sl=sliders[i];
         var sx=Math.sin(elapsed*sl.speed+sl.phase)*sl.amp;
+        /* ease off near the active coin so the sequence isn't contested */
+        if(!corrPortalActive&&coinIndex<CORR_LIVE&&corrCoins[coinIndex]){
+          if(Math.abs(sl.z-corrCoins[coinIndex].z)<7) sx*=0.35;
+        }
         sl.mesh.position.set(sx,terrainH(sx,sl.z)+0.85,sl.z);
         sl.mesh.rotation.y+=1.5*dt;
-        if(iframes<=0&&Math.hypot(pos.x-sx,pos.z-sl.z)<RADIUS+1.0
+        if(iframes<=0&&Math.abs(pos.x)<=5.5
+           &&Math.hypot(pos.x-sx,pos.z-sl.z)<RADIUS+1.0
            &&Math.abs(pos.y-sl.mesh.position.y)<RADIUS+0.9){
           takeHit(sx,sl.z);
         }
@@ -7505,7 +8001,7 @@
         var L=lines[lineIdx=(lineIdx+1)%lines.length];
         var bx=pos.x-vel.x/sp2*1.6+(Math.random()-0.5)*1.4;
         var bz=pos.z-vel.z/sp2*1.6+(Math.random()-0.5)*1.4;
-        L.mesh.material.color.setHex(raceTurbo?RED:(boostT>0?BLUE:INK));
+        L.mesh.material.color.setHex(level==='dance'?0xffffff:(raceTurbo?RED:(boostT>0?BLUE:INK))); /* ink is invisible on the dark pulse floor */
         L.mesh.position.set(bx,terrainH(bx,bz)+0.06,bz);
         L.mesh.rotation.z=-Math.atan2(vel.x,vel.z);
         L.t=0.35; L.mesh.visible=true;
@@ -7553,10 +8049,18 @@
     shadow.position.y=(level==='spiral'?Math.max(0,lastGroundY-RADIUS):terrainH(shadow.position.x,shadow.position.z))+0.02;
     shadow.scale.setScalar(Math.max(0.5,1-h*0.09));
     shadow.material.opacity=Math.max(0.35,1-h*0.12);
+    if(level==='dance')shadow.material.opacity=0; /* dark floor: the lane glow is the ground reference */
 
-    if(level==='spiral') camTarget.set(pos.x,pos.y*0.7,pos.z);
-    else camTarget.set(pos.x,0,pos.z);
-    camera.position.lerp(camTarget.clone().add(level==='maze'?MAZE_CAM_OFFSET:CAM_OFFSET),0.08);
+    if(level==='dance'){
+      /* short downward dip when a note is missed */
+      var dip=danceDipT>0?Math.sin((1-danceDipT/0.3)*Math.PI)*0.9:0;
+      camera.position.lerp(new THREE.Vector3(pos.x*0.35,13-dip,DANCE_HITZ+17),0.1);
+      camTarget.set(pos.x*0.2,1.5-dip*0.4,DANCE_HITZ-16);
+    } else {
+      if(level==='spiral') camTarget.set(pos.x,pos.y*0.7,pos.z);
+      else camTarget.set(pos.x,0,pos.z);
+      camera.position.lerp(camTarget.clone().add(level==='maze'?MAZE_CAM_OFFSET:CAM_OFFSET),0.08);
+    }
     if(!reducedMotion){
       if(shakeT>0){ /* directional kick, decaying wobble */
         shakeT-=dt;
@@ -7572,7 +8076,8 @@
         camera.fov=42; camera.updateProjectionMatrix();
       }
     }
-    camera.lookAt(camTarget.x,0,camTarget.z);
+    if(level==='dance') camera.lookAt(camTarget.x,camTarget.y,camTarget.z);
+    else camera.lookAt(camTarget.x,0,camTarget.z);
 
     /* ink meter hovers above the ball in the boss room */
     if(level==='obsidian'&&state==='play'){
