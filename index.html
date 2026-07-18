@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>ROLL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { height:100%; overflow:hidden; background:#fff; touch-action:none;
@@ -16,14 +19,7 @@
   #hudLeft { display:flex; align-items:center; gap:10px; flex-wrap:wrap; max-width:52%; }
   #score { font-size:11px; font-weight:600; letter-spacing:0.42em; }
   #timer { font-size:11px; font-weight:600; letter-spacing:0.28em; color:#555; }
-  #hudBadges { display:flex; gap:5px; flex-wrap:wrap; }
-  .shield { width:15px; height:18px; background:#111; color:#fff;
-    clip-path:polygon(0 0, 100% 0, 100% 62%, 50% 100%, 0 62%);
-    display:flex; align-items:center; justify-content:center;
-    font-size:6.5px; font-weight:700; padding-bottom:3px;
-    animation:shieldIn 0.35s cubic-bezier(.3,1.8,.4,1); }
   @keyframes shieldIn { 0% { transform:scale(0); } 100% { transform:scale(1); } }
-  @media (prefers-reduced-motion: reduce) { .shield { animation:none; } }
   #hearts { display:flex; gap:8px; }
   .heart { width:10px; height:10px; border-radius:50%; background:#111; border:1.5px solid #111; }
   .heart.lost { background:transparent; }
@@ -169,26 +165,89 @@
   .badge.got { border-color:#111; background:#111; color:#fff; }
   .badge.sel { box-shadow:0 0 0 2px #e8262a; }
 
-  /* Small badge criteria card on the resolution screen */
+  /* Badge escutcheon showcase — full-screen spinning shield treatment */
   #badgeInfo {
-    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
-    z-index:14; width:min(280px,86vw); padding:22px 20px 18px;
-    background:#fff; border:1.5px solid #111; text-align:center;
-    display:flex; flex-direction:column; align-items:center; gap:10px;
-    pointer-events:auto; box-shadow:0 12px 40px rgba(0,0,0,0.12);
+    position:fixed; inset:0; z-index:14;
+    background:#fff; color:#0a0a0a;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; pointer-events:auto;
+    font-family:'IBM Plex Mono',monospace;
+    padding:calc(env(safe-area-inset-top,0px) + 12px) 16px calc(env(safe-area-inset-bottom,0px) + 12px);
+    overflow:hidden;
+  }
+  #badgeInfo::before {
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse 70% 55% at 50% 40%, transparent 55%, rgba(0,0,0,.045) 100%);
   }
   #badgeInfo.hidden { display:none; }
-  #badgeInfoGlyph { width:40px; height:40px; border-radius:50%; border:1.5px solid #111;
+  #badgeInfo.locked #escStage { filter:grayscale(1); opacity:0.4; }
+  #escStage {
+    width:min(250px,58vw); aspect-ratio:400/470; margin:0 auto 4px;
+    perspective:1100px; position:relative; touch-action:none; cursor:grab;
+  }
+  #escStage.grabbing { cursor:grabbing; }
+  .escHalo { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+  .escHalo span {
+    position:absolute; width:70%; aspect-ratio:1; border-radius:50%;
+    border:1.5px solid #0a0a0a; opacity:0;
+    animation:escRing 1.3s cubic-bezier(.2,.7,.2,1) .3s forwards;
+  }
+  .escHalo span:nth-child(2) { animation-delay:.45s; border-width:1px; }
+  .escHalo span:nth-child(3) { animation-delay:.6s; border-width:.5px; }
+  @keyframes escRing { 0%{transform:scale(.55);opacity:.9;} 100%{transform:scale(1.55);opacity:0;} }
+  .escSpinner {
+    position:absolute; inset:0; transform-style:preserve-3d;
+    animation:escDrop .85s cubic-bezier(.16,1.1,.3,1) both;
+  }
+  @keyframes escDrop {
+    0%{transform:translateY(-56px) scale(.6);opacity:0;}
+    100%{transform:translateY(0) scale(1);opacity:1;}
+  }
+  .escGimbal { position:absolute; inset:0; transform-style:preserve-3d; transform:rotateX(6deg); }
+  .escRotor { position:absolute; inset:0; transform-style:preserve-3d; animation:escSpin 9s linear infinite; }
+  @keyframes escSpin { from{transform:rotateY(0);} to{transform:rotateY(360deg);} }
+  .escRotor.manual { animation:none; }
+  .escLayer { position:absolute; inset:0; backface-visibility:hidden; }
+  .escLayer svg { width:100%; height:100%; display:block; overflow:visible; }
+  .escEdge { backface-visibility:visible; }
+  .escTitle { font-family:'Cinzel',serif; font-weight:700;
+    font-size:clamp(18px,5vw,26px); letter-spacing:.32em; margin-left:.32em; margin-top:6px; }
+  .escRule { width:54px; height:1px; background:#0a0a0a; margin:12px auto 10px; }
+  .escDesc { font-size:clamp(11px,3vw,12.5px); letter-spacing:.14em; color:#333; max-width:320px; }
+  .escEarned { margin-top:14px; font-size:11px; font-weight:500;
+    letter-spacing:.6em; margin-left:.6em; color:#bdbdbd; }
+  #escText.reveal .escTitle { opacity:0; animation:escRiseIn .6s ease .45s forwards; }
+  #escText.reveal .escRule { transform:scaleX(0); animation:escRuleIn .5s ease .65s forwards; }
+  #escText.reveal .escDesc { opacity:0; animation:escRiseIn .6s ease .6s forwards; }
+  #escText.reveal .escEarned { opacity:0; animation:escStampIn .5s cubic-bezier(.3,1.6,.4,1) .95s forwards; }
+  @keyframes escRiseIn { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
+  @keyframes escRuleIn { to{transform:scaleX(1);} }
+  @keyframes escStampIn { 0%{opacity:0;transform:scale(1.6);} 100%{opacity:1;transform:scale(1);} }
+  #escNav { display:flex; align-items:center; justify-content:center; gap:22px; margin-top:16px;
+    position:relative; z-index:1; }
+  #escNav.solo .escArrow { visibility:hidden; }
+  .escArrow {
+    width:44px; height:44px; border:1px solid #d6d6d6; border-radius:2px;
     display:flex; align-items:center; justify-content:center;
-    font-size:11px; font-weight:700; letter-spacing:0.05em; margin-bottom:2px; }
-  #badgeInfoGlyph.got { background:#111; color:#fff; }
-  #badgeInfoGlyph:not(.got) { color:#bbb; border-color:#bbb; }
-  #badgeInfoName { font-size:12px; font-weight:700; letter-spacing:0.34em; text-indent:0.34em; }
-  #badgeInfoHow { font-size:11px; letter-spacing:0.12em; line-height:1.7; color:#555;
-    max-width:240px; }
-  #badgeInfoStatus { font-size:9px; font-weight:600; letter-spacing:0.34em; text-indent:0.34em; color:#999; }
+    font-family:'Cinzel',serif; font-size:22px; line-height:1; color:#8c8c8c;
+    cursor:pointer; transition:color .18s, border-color .18s, transform .12s;
+  }
+  .escArrow:hover { border-color:#0a0a0a; color:#0a0a0a; }
+  .escArrow:active { transform:scale(.92); }
+  #escCount { font-size:10px; letter-spacing:.34em; text-indent:.34em; color:#8c8c8c; min-width:64px; }
   #badgeInfoClose { font-size:10px; font-weight:600; letter-spacing:0.34em; margin-left:0.34em;
-    padding:10px 18px; border:1.5px solid #111; border-radius:999px; cursor:pointer; margin-top:4px; }
+    padding:10px 18px; border:1.5px solid #111; border-radius:999px; cursor:pointer; margin-top:14px;
+    position:relative; z-index:1; }
+  #escHint { position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 10px); left:0; right:0;
+    text-align:center; font-size:9px; letter-spacing:.3em; color:#d0d0d0; pointer-events:none; }
+  @media (prefers-reduced-motion:reduce) {
+    .escRotor { animation:none; transform:rotateY(-18deg); }
+    .escHalo span, .escSpinner { animation:none; }
+    #escText.reveal .escTitle,
+    #escText.reveal .escDesc, #escText.reveal .escEarned { animation:none; opacity:1; }
+    #escText.reveal .escRule { animation:none; transform:scaleX(1); }
+    .gloss-sweep { display:none; }
+  }
 
   #stick.padHide { display:none; }
 
@@ -230,7 +289,6 @@
   body.void #timer { color:#9fb1d8; }
   body.void .heart { background:#dfe9ff; border-color:#dfe9ff; }
   body.void .heart.lost { background:transparent; }
-  body.void .shield { background:#dfe9ff; color:#07080f; }
   body.void #toast { background:rgba(10,12,22,0.92); color:#dfe9ff; border-color:#dfe9ff; }
   body.void .coinIcon { border-color:#dfe9ff; }
   body.void #inkMeter { border-color:#dfe9ff; background:rgba(255,255,255,0.12); }
@@ -342,7 +400,6 @@
   <div id="hudLeft">
     <div id="score">ROLL &middot; 000</div>
     <div id="timer">0:00</div>
-    <div id="hudBadges"></div>
   </div>
   <div id="coins"><div class="coinIcon"></div><span id="coinCount">&times; 00</span></div>
   <div id="raySlot"><div class="rayIcon">&#x1F52B;</div></div>
@@ -407,11 +464,20 @@
 </div>
 
 <div id="badgeInfo" class="hidden">
-  <div id="badgeInfoGlyph"></div>
-  <div id="badgeInfoName"></div>
-  <div id="badgeInfoHow"></div>
-  <div id="badgeInfoStatus"></div>
+  <div id="escStage"></div>
+  <div id="escText" class="reveal">
+    <div class="escTitle" id="escTitle"></div>
+    <div class="escRule"></div>
+    <div class="escDesc" id="escDesc"></div>
+    <div class="escEarned" id="escEarned">EARNED</div>
+  </div>
+  <div id="escNav">
+    <div id="escPrev" class="escArrow">&#8249;</div>
+    <div id="escCount"></div>
+    <div id="escNext" class="escArrow">&#8250;</div>
+  </div>
   <div id="badgeInfoClose">CLOSE</div>
+  <div id="escHint">DRAG TO TURN &middot; TAP SHIELD TO REPLAY</div>
 </div>
 
 <div id="profileOverlay" class="overlay hidden">
@@ -467,6 +533,12 @@
   var danceChart=PulseLib.danceChart;
   var VIPER_BOUND=30;       /* half-extent of square feast arena */
   var PIPE_K=0.032, PIPE_HW=10, CORR_XMAX=12.5, CORR_START=6, CORR_END=-130;
+  /* THE CLIMB is a tube: 3 faces 120° apart; riding a wall rolls the tube */
+  var TUBE_CY=8, TUBE_ANG=Math.PI*2/3, CORR_RIDE_X=8.8, CORR_RIDE_HOLD=0.25, CORR_ROLL_DUR=0.55;
+  function corrPipeH(x){
+    var d=Math.abs(x);
+    return d<=PIPE_HW ? PIPE_K*d*d : PIPE_K*PIPE_HW*PIPE_HW+(d-PIPE_HW)*2;
+  }
   var DIAMOND=0xbfeef8;
   /* THE NAUTILUS: conical spiral path to the ceiling */
   var SP_R0=6, SP_TURNS=1.75, SP_THMAX=SP_TURNS*Math.PI*2;
@@ -668,11 +740,12 @@
   var corrMeshes=[];
   function corrReg(m){ m.visible=false; scene.add(m); corrMeshes.push(m); return m; }
   /* half-pipe floor: displaced strip with the same dot texture */
+  var corrTubeGroup=null; /* wall panels; rotation.z animates the tube roll */
   (function(){
     var g=new THREE.PlaneGeometry(30,160,48,160);
     g.rotateX(-Math.PI/2);
     var gp=g.attributes.position, nrm=new Float32Array(gp.count*3), e=0.12;
-    function pipeH(x){var d=Math.abs(x);return d<=PIPE_HW?PIPE_K*d*d:PIPE_K*PIPE_HW*PIPE_HW+(d-PIPE_HW)*2;}
+    var pipeH=corrPipeH;
     for(var i=0;i<gp.count;i++){
       var x=gp.getX(i);
       gp.setY(i,pipeH(x));
@@ -691,6 +764,44 @@
       rail.position.set(rx,PIPE_K*PIPE_HW*PIPE_HW+0.15,(CORR_START+CORR_END)/2);
       corrReg(rail);
     });
+    /* tube wall panels: floor copies rotated ±120° about the tube axis.
+       They live in a roll group so the whole tube visibly rotates. */
+    corrTubeGroup=new THREE.Group();
+    corrTubeGroup.position.set(0,TUBE_CY,(CORR_START+CORR_END)/2);
+    corrReg(corrTubeGroup);
+    function panelMesh(){
+      var pg=new THREE.PlaneGeometry(18,160,30,1);
+      pg.rotateX(-Math.PI/2);
+      var pp=pg.attributes.position;
+      for(var pi=0;pi<pp.count;pi++) pp.setY(pi,pipeH(pp.getX(pi))+0.1-TUBE_CY);
+      pg.computeVertexNormals();
+      /* front side only: the camera sees through the tube's upper walls,
+         but a wall rolling down into place renders as it arrives */
+      return new THREE.Mesh(pg,new THREE.MeshToonMaterial(
+        {color:0xf3f3f3,gradientMap:groundGradient}));
+    }
+    [TUBE_ANG,-TUBE_ANG].forEach(function(pa){
+      var sub=new THREE.Group();
+      sub.rotation.z=pa;
+      sub.add(panelMesh());
+      /* one edge rail per panel — only the edge that rests near the floor lip */
+      var rx=-9*(pa>0?1:-1);
+      var pr=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,160),
+        new THREE.MeshBasicMaterial({color:INK}));
+      pr.position.set(rx,pipeH(rx)+0.3-TUBE_CY,0);
+      sub.add(pr);
+      corrTubeGroup.add(sub);
+    });
+    /* static tube ribs: hoops whose open end tucks under the floor */
+    var ribR=12, ribA0=Math.asin(TUBE_CY/ribR); /* ends meet the floor plane */
+    var ribArc=Math.PI+2*ribA0;
+    for(var rz=CORR_START-8;rz>CORR_END+2;rz-=15){
+      var rib=new THREE.Mesh(new THREE.TorusGeometry(ribR,0.14,8,42,ribArc),
+        new THREE.MeshBasicMaterial({color:INK}));
+      rib.rotation.z=-ribA0;
+      rib.position.set(0,TUBE_CY,rz);
+      corrReg(rib);
+    }
   })();
   /* portals: ink tube rings — hub portal shape follows the next destination */
   function portalOutlinePoints(kind, R){
@@ -1391,7 +1502,6 @@
     new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.4,
       blending:THREE.AdditiveBlending,depthWrite:false})));
   danceBallGlow.rotation.x=-Math.PI/2;
-  /* hub debug portal for THE PULSE */
   function setMazeVisible(v){
     for(var i=0;i<mazeMeshes.length;i++) mazeMeshes[i].visible=!!v&&mazeMeshes[i].userData.keep!==false;
     if(!v){
@@ -2342,16 +2452,33 @@
 
   /* corridor coins: ordered climb (see buildCorrCoins) */
   var corrCoins=[]; /* built after coin geometry is defined */
-  var CORR_LIVE=14, CORR_SEG_LEN=7, CORR_SAFE_X=6.6, CORR_BULLET_CAP=14;
+  var CORR_LIVE=15, CORR_SEG_LEN=5, CORR_SAFE_X=6.6, CORR_BULLET_CAP=14;
   var corrFailSeg=0;
-  /* sliders: stay in the kill channel so wall-safe coins aren't contested */
+  /* tube roll state: corrFace is the face currently under the ball */
+  var corrFace=0, corrRollA=0, corrRollT=0, corrRollFrom=0;
+  var corrRideT=0, corrRideDir=0;
+  var corrRollBX=0, corrRollBY=0, corrRollTX=0;
+  /* face index relative to the active face: +1 = shows on the LEFT wall,
+     -1 = shows on the RIGHT wall, 0 = the floor under the ball */
+  function corrRelOf(face){ return ((face-corrFace+4)%3)-1; }
+  function corrAngOf(face){ return corrRelOf(face)*(-TUBE_ANG)+corrRollA; }
+  /* place a mesh in face-local coords (x across, z along, lift above surface),
+     rotated about the tube axis to wherever that face currently sits */
+  function corrPlaceMesh(mesh,x,z,face,lift){
+    var a=corrAngOf(face);
+    var y=corrPipeH(x)+lift-TUBE_CY;
+    var ca=Math.cos(a), sa=Math.sin(a);
+    mesh.position.set(x*ca-y*sa, x*sa+y*ca+TUBE_CY, z);
+    return a;
+  }
+  /* sliders: stay in the kill channel so wall-safe coins aren't contested (floor face) */
   var sliders=[];
   [ -32,-68,-105 ].forEach(function(sz,idx){
     var m=corrReg(new THREE.Mesh(new THREE.BoxGeometry(1.7,1.7,1.7),
       new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
-    sliders.push({mesh:m,z:sz,amp:3.6,speed:0.7+idx*0.18,phase:idx*1.7});
+    sliders.push({mesh:m,z:sz,amp:3.6,speed:0.7+idx*0.18,phase:idx*1.7,lx:0});
   });
-  /* gates: rotating ink bars over the pipe center */
+  /* gates: rotating ink bars over the pipe center (floor face) */
   var gates=[];
   [ -48,-95 ].forEach(function(gz,idx){
     var m=corrReg(new THREE.Mesh(new THREE.BoxGeometry(12,0.8,0.7),
@@ -2359,6 +2486,53 @@
     m.position.set(0,0.9,gz);
     gates.push({mesh:m,z:gz,theta:idx*1.3,omega:idx%2?1.1:-1.1});
   });
+  /* LEFT face dangers: piston pairs that pinch the channel shut */
+  var corrPistons=[];
+  [[-24,0],[-46,1.6],[-61,3.2],[-90,4.8]].forEach(function(pd){
+    var mk=function(){
+      return corrReg(new THREE.Mesh(new THREE.BoxGeometry(1.7,2.4,1.7),
+        new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
+    };
+    corrPistons.push({mL:mk(),mR:mk(),z:pd[0],phase:pd[1],speed:1.15,gap:6});
+  });
+  /* RIGHT face dangers: stompers that slam down onto the lane */
+  var corrStompers=[];
+  [[-20,-3,0],[-52,3,1.3],[-83,-3,2.6],[-97.5,3,3.9]].forEach(function(sd){
+    var m=corrReg(new THREE.Mesh(new THREE.BoxGeometry(2.6,1.1,2.6),
+      new THREE.MeshToonMaterial({color:INK,gradientMap:gradientMap})));
+    corrStompers.push({mesh:m,z:sd[0],x:sd[1],phase:sd[2],speed:1.5,yl:4});
+  });
+  /* wall ride held → roll the tube so that wall becomes the floor */
+  function startCorrRoll(dir){
+    corrFace=(corrFace+(dir>0?1:2))%3;
+    corrRollFrom=-dir*TUBE_ANG;
+    corrRollA=corrRollFrom;
+    corrRollT=CORR_ROLL_DUR;
+    corrRollBX=pos.x; corrRollBY=pos.y;
+    corrRollTX=Math.max(-4,Math.min(4,pos.x+9*dir));
+    vel.x*=0.25;
+    iframes=Math.max(iframes,CORR_ROLL_DUR+0.5);
+    corrRideT=0; corrRideDir=0;
+    /* the roll sweeps the channel clean */
+    bullets.forEach(function(b){ if(b.alive){b.alive=false;b.mesh.visible=false;} });
+    boomSfx(); fovPulse=0.3;
+    shakeT=0.22; shakeX=dir; shakeZ=0.2;
+  }
+  function corrRollUpdate(dt){
+    corrRollT-=dt;
+    var t=Math.max(0,Math.min(1,1-corrRollT/CORR_ROLL_DUR));
+    var e=t*t*(3-2*t);
+    corrRollA=corrRollFrom*(1-e);
+    pos.x=corrRollBX+(corrRollTX-corrRollBX)*e;
+    pos.y=corrRollBY+((corrPipeH(corrRollTX)+RADIUS)-corrRollBY)*e;
+    pos.z+=vel.z*dt*0.6;
+    vel.y=0; grounded=true;
+    if(corrRollT<=0){
+      corrRollA=0;
+      spawnShock(pos.x,pos.z);
+      thudSfx();
+    }
+  }
 
   /* ---------------- THE NAUTILUS: spiral level meshes ---------------- */
   function spReg(m){ m.visible=false; scene.add(m); spiralMeshes.push(m); return m; }
@@ -2991,7 +3165,8 @@
     }
   }
 
-  /* corridor coins: 14 ordered pickups in 2 segments, parked on safe walls.
+  /* corridor coins: 15 ordered pickups in 3 runs of 5 — floor, left face,
+     right face. Ride a wall to roll the tube and reach the next run.
      Portal stays closed until the full sequence clears. */
   function buildCorrCoins(){
     if(!corrCoins.length){
@@ -2999,17 +3174,22 @@
         var m=new THREE.Mesh(coinGeo,new THREE.MeshToonMaterial({color:GOLD,gradientMap:gradientMap}));
         m.add(new THREE.Mesh(coinOutGeo,new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
         corrReg(m);
-        corrCoins.push({mesh:m,alive:false,x:0,z:0});
+        corrCoins.push({mesh:m,alive:false,x:0,z:0,face:0});
       }
     }
-    /* side runs of 3–4 on each wall → few channel crossings, wall ride stays safe */
-    var sides=[1,1,1,1,-1,-1,-1,1,1,1,-1,-1,-1,-1];
+    /* floor run hugs the safe walls (bullets live in the channel);
+       side faces are bullet-free so their runs weave the lane */
+    var faces=[0,0,0,0,0, 1,1,1,1,1, 2,2,2,2,2];
+    var xs=[ CORR_SAFE_X,CORR_SAFE_X,-CORR_SAFE_X,-CORR_SAFE_X,CORR_SAFE_X,
+             -4,0,4,0,-4,
+             4,0,-4,0,4 ];
     var z0=CORR_START-12, z1=CORR_END+22, dz=(z0-z1)/(CORR_LIVE-1);
     for(var j=0;j<corrCoins.length;j++){
       var c=corrCoins[j];
       if(j<CORR_LIVE){
         c.z=z0-j*dz;
-        c.x=sides[j]*CORR_SAFE_X;
+        c.x=xs[j];
+        c.face=faces[j];
         c.alive=true;
         c.mesh.material.color.setHex(GOLD);
         c.mesh.scale.setScalar(1);
@@ -3020,6 +3200,8 @@
       }
     }
     coinIndex=0; coinBlinkT=0; corrFailSeg=0;
+    corrFace=0; corrRollA=0; corrRollT=0; corrRideT=0; corrRideDir=0;
+    if(corrTubeGroup) corrTubeGroup.rotation.z=0;
     corrPortalActive=false; /* must clear the coin run to open the exit */
     exitPortal.visible=false;
   }
@@ -3086,7 +3268,8 @@
   var diamonds=[];
   (function(){
     var dGeo=new THREE.OctahedronGeometry(0.6);
-    [{x:8.6,z:-46},{x:-8.6,z:-96}].forEach(function(dp){
+    /* kept inside the wall-ride trigger zone (|x| < CORR_RIDE_X) */
+    [{x:7.4,z:-46},{x:-7.4,z:-96}].forEach(function(dp){
       var m=corrReg(new THREE.Mesh(dGeo,new THREE.MeshToonMaterial({color:DIAMOND,gradientMap:gradientMap})));
       m.add(new THREE.Mesh(new THREE.OctahedronGeometry(0.68),
         new THREE.MeshBasicMaterial({color:INK,side:THREE.BackSide})));
@@ -3648,8 +3831,8 @@
     {id:'rhythm', g:'PU', name:'PERFECT PULSE', how:'Finish THE PULSE with 95% or higher accuracy.'},
     {id:'climber', g:'CL', name:'THE CLIMB', how:'Clear the corridor coin run and open the exit portal.'}
   ];
-  var BADGE_IDS={};
-  for(var bi=0;bi<BADGES.length;bi++) BADGE_IDS[BADGES[bi].id]=BADGES[bi];
+  var BADGE_IDS={}, BADGE_ORDER=[];
+  for(var bi=0;bi<BADGES.length;bi++){ BADGE_IDS[BADGES[bi].id]=BADGES[bi]; BADGE_ORDER.push(BADGES[bi].id); }
   var earned={};
   countdownEl=document.getElementById('countdown');
   placeHudEl=document.getElementById('placeHud');
@@ -3661,15 +3844,19 @@
   miniCtx=miniEl.getContext('2d');
   hitWhyEl=document.getElementById('hitWhy');
   var toastEl=document.getElementById('toast');
-  var hudBadgesEl=document.getElementById('hudBadges');
   var badgeRowEl=document.getElementById('badgeRow');
   var badgeLabelEl=document.getElementById('badgeLabel');
   var badgeInfoEl=document.getElementById('badgeInfo');
-  var badgeInfoGlyph=document.getElementById('badgeInfoGlyph');
-  var badgeInfoName=document.getElementById('badgeInfoName');
-  var badgeInfoHow=document.getElementById('badgeInfoHow');
-  var badgeInfoStatus=document.getElementById('badgeInfoStatus');
   var badgeInfoClose=document.getElementById('badgeInfoClose');
+  var escStageEl=document.getElementById('escStage');
+  var escTextEl=document.getElementById('escText');
+  var escTitleEl=document.getElementById('escTitle');
+  var escDescEl=document.getElementById('escDesc');
+  var escEarnedEl=document.getElementById('escEarned');
+  var escNavEl=document.getElementById('escNav');
+  var escPrevEl=document.getElementById('escPrev');
+  var escNextEl=document.getElementById('escNext');
+  var escCountEl=document.getElementById('escCount');
   var profileOv=document.getElementById('profileOverlay');
   var profileNameEl=document.getElementById('profileName');
   var profileScoreEl=document.getElementById('profileScore');
@@ -3684,32 +3871,18 @@
     for(var i=0;i<BADGES.length;i++) if(earned[BADGES[i].id]) out.push(BADGES[i].id);
     return out;
   }
-  function rebuildHudBadges(){
-    hudBadgesEl.innerHTML='';
-    for(var i=0;i<BADGES.length;i++){
-      if(!earned[BADGES[i].id])continue;
-      var sh=document.createElement('div');
-      sh.className='shield';
-      sh.textContent=BADGES[i].g;
-      sh.title=BADGES[i].name;
-      hudBadgesEl.appendChild(sh);
-    }
-  }
   function applyBadgeIds(ids, announce){
     if(!ids||!ids.length)return;
-    var added=false;
     for(var i=0;i<ids.length;i++){
       var id=ids[i];
       if(!BADGE_IDS[id]||earned[id])continue;
       earned[id]=true;
-      added=true;
       if(announce){
         toastQueue.push('BADGE \u00B7 '+BADGE_IDS[id].name);
         showNextToast();
         badgeSfx();
       }
     }
-    if(added) rebuildHudBadges();
   }
   function persistBadges(){
     if(!fbReady||!db||!fbUser)return;
@@ -3768,29 +3941,327 @@
       setTimeout(function(){toastBusy=false;showNextToast();},300);
     },1900);
   }
+  var runBadges=[]; /* badges unlocked during the current run — shown as a carousel on death */
   function awardBadge(id){
     if(!BADGE_IDS[id]||earned[id])return; /* already unlocked — never re-earn */
     earned[id]=true;
+    runBadges.push(id);
     toastQueue.push('BADGE \u00B7 '+BADGE_IDS[id].name);
     showNextToast();
     badgeSfx();
-    rebuildHudBadges();
     persistBadges();
   }
-  function openBadgeInfo(def, got){
-    if(!badgeInfoEl||!def)return;
-    badgeInfoGlyph.textContent=def.g;
-    badgeInfoGlyph.classList.toggle('got', !!got);
-    badgeInfoName.textContent=def.name;
-    badgeInfoHow.textContent=def.how||'';
-    badgeInfoStatus.textContent=got?'EARNED':'LOCKED';
+  /* ------------- Escutcheon showcase (badge shield treatment) ------------- */
+  /* Each badge gets a fixed "random" shield type, derived from its id hash. */
+  var ESC_DEFS=[
+    { name:"KITE", numeral:"I", cy:230,
+      path:(X,Y)=>`M${X(200)} ${Y(24)} C${X(155)} ${Y(24)} ${X(124)} ${Y(54)} ${X(124)} ${Y(104)} L${X(124)} ${Y(190)} C${X(124)} ${Y(310)} ${X(165)} ${Y(405)} ${X(200)} ${Y(446)} C${X(235)} ${Y(405)} ${X(276)} ${Y(310)} ${X(276)} ${Y(190)} L${X(276)} ${Y(104)} C${X(276)} ${Y(54)} ${X(245)} ${Y(24)} ${X(200)} ${Y(24)} Z`,
+      roundel:{cx:200,cy:178,r:50}, chev:{y0:296,n:3,w:38},
+      wings:{lx:130,rx:270,y:88,s:0.8},
+      fil:[[164,286,0.7,false],[236,286,0.7,true]], tilt:0 },
+    { name:"TRIANGULAR", numeral:"II", cy:235,
+      path:(X,Y)=>`M${X(64)} ${Y(64)} L${X(336)} ${Y(64)} C${X(336)} ${Y(170)} ${X(290)} ${Y(330)} ${X(200)} ${Y(442)} C${X(110)} ${Y(330)} ${X(64)} ${Y(170)} ${X(64)} ${Y(64)} Z`,
+      roundel:{cx:200,cy:186,r:58}, chev:{y0:300,n:3,w:44},
+      wings:{lx:52,rx:348,y:92,s:1},
+      fil:[[104,104,0.95,false],[296,104,0.95,true]], tilt:0 },
+    { name:"HEATER", numeral:"III", cy:235,
+      path:(X,Y)=>`M${X(200)} ${Y(26)} C${X(168)} ${Y(40)} ${X(118)} ${Y(48)} ${X(62)} ${Y(48)} L${X(62)} ${Y(218)} C${X(62)} ${Y(330)} ${X(122)} ${Y(402)} ${X(200)} ${Y(446)} C${X(278)} ${Y(402)} ${X(338)} ${Y(330)} ${X(338)} ${Y(218)} L${X(338)} ${Y(48)} C${X(282)} ${Y(48)} ${X(232)} ${Y(40)} ${X(200)} ${Y(26)} Z`,
+      roundel:{cx:200,cy:196,r:62}, chev:{y0:318,n:3,w:54},
+      wings:{lx:48,rx:352,y:96,s:1},
+      fil:[[104,96,1.1,false],[296,96,1.1,true],[126,352,0.8,false],[274,352,0.8,true]], tilt:0 },
+    { name:"SQUARE", numeral:"IV", cy:235,
+      path:(X,Y)=>`M${X(72)} ${Y(56)} L${X(328)} ${Y(56)} L${X(328)} ${Y(258)} A ${128} ${128} 0 0 1 ${X(72)} ${Y(258)} Z`,
+      roundel:{cx:200,cy:188,r:62}, chev:{y0:300,n:3,w:48},
+      wings:{lx:60,rx:340,y:90,s:1},
+      fil:[[108,96,1,false],[292,96,1,true],[140,318,0.75,false],[260,318,0.75,true]], tilt:0 },
+    { name:"FLORID", numeral:"V", cy:235,
+      path:(X,Y)=>`M${X(110)} ${Y(44)} Q${X(200)} ${Y(72)} ${X(290)} ${Y(44)} Q${X(310)} ${Y(90)} ${X(330)} ${Y(96)} Q${X(316)} ${Y(140)} ${X(334)} ${Y(176)} Q${X(312)} ${Y(216)} ${X(326)} ${Y(252)} Q${X(298)} ${Y(288)} ${X(304)} ${Y(324)} Q${X(268)} ${Y(350)} ${X(262)} ${Y(384)} Q${X(228)} ${Y(402)} ${X(200)} ${Y(440)} Q${X(172)} ${Y(402)} ${X(138)} ${Y(384)} Q${X(132)} ${Y(350)} ${X(96)} ${Y(324)} Q${X(102)} ${Y(288)} ${X(74)} ${Y(252)} Q${X(88)} ${Y(216)} ${X(66)} ${Y(176)} Q${X(84)} ${Y(140)} ${X(70)} ${Y(96)} Q${X(90)} ${Y(90)} ${X(110)} ${Y(44)} Z`,
+      roundel:{cx:200,cy:200,r:56}, chev:{y0:312,n:3,w:40},
+      wings:{lx:56,rx:344,y:86,s:0.95},
+      fil:[[128,120,0.9,false],[272,120,0.9,true]], tilt:0 },
+    { name:"VAIR", numeral:"VI", cy:240,
+      path:(X,Y)=>`M${X(96)} ${Y(52)} L${X(304)} ${Y(52)} C${X(304)} ${Y(120)} ${X(340)} ${Y(150)} ${X(340)} ${Y(210)} C${X(340)} ${Y(320)} ${X(280)} ${Y(396)} ${X(200)} ${Y(442)} C${X(120)} ${Y(396)} ${X(60)} ${Y(320)} ${X(60)} ${Y(210)} C${X(60)} ${Y(150)} ${X(96)} ${Y(120)} ${X(96)} ${Y(52)} Z`,
+      roundel:{cx:200,cy:214,r:60}, chev:{y0:330,n:2,w:44},
+      wings:{lx:88,rx:312,y:82,s:0.9},
+      fil:[[136,116,0.85,false],[264,116,0.85,true]], tilt:0 },
+    { name:"\u00c0 BOUCHE", numeral:"VII", cy:235,
+      path:(X,Y)=>`M${X(78)} ${Y(54)} L${X(322)} ${Y(54)} L${X(322)} ${Y(96)} A 40 40 0 0 0 ${X(322)} ${Y(164)} L${X(322)} ${Y(252)} C${X(322)} ${Y(332)} ${X(270)} ${Y(398)} ${X(200)} ${Y(428)} C${X(130)} ${Y(398)} ${X(78)} ${Y(332)} ${X(78)} ${Y(252)} Z`,
+      roundel:{cx:192,cy:196,r:58}, chev:{y0:304,n:3,w:44},
+      wings:{lx:66,rx:334,y:88,s:0.95},
+      fil:[[114,96,0.95,false],[268,96,0.95,true],[140,320,0.7,false],[248,320,0.7,true]], tilt:0 },
+    { name:"CARTOUCHE", numeral:"VIII", cy:236,
+      path:(X,Y)=>`M${X(200)} ${Y(40)} C${X(296)} ${Y(40)} ${X(330)} ${Y(126)} ${X(330)} ${Y(236)} C${X(330)} ${Y(346)} ${X(296)} ${Y(432)} ${X(200)} ${Y(432)} C${X(104)} ${Y(432)} ${X(70)} ${Y(346)} ${X(70)} ${Y(236)} C${X(70)} ${Y(126)} ${X(104)} ${Y(40)} ${X(200)} ${Y(40)} Z`,
+      roundel:{cx:200,cy:202,r:62}, chev:{y0:316,n:2,w:46},
+      wings:{lx:74,rx:326,y:104,s:0.95},
+      fil:[[134,104,0.9,false],[266,104,0.9,true],[150,352,0.7,false],[250,352,0.7,true]], tilt:0 },
+    { name:"LOZENGE", numeral:"IX", cy:235,
+      path:(X,Y)=>`M${X(200)} ${Y(30)} L${X(330)} ${Y(235)} L${X(200)} ${Y(440)} L${X(70)} ${Y(235)} Z`,
+      roundel:{cx:200,cy:212,r:50}, chev:{y0:300,n:2,w:30},
+      wings:{lx:96,rx:304,y:140,s:0.85},
+      fil:[[172,122,0.7,false],[228,122,0.7,true]], tilt:0 }
+  ];
+  function escDefFor(id){
+    var h=0;
+    for(var i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))|0;
+    return ESC_DEFS[Math.abs(h)%ESC_DEFS.length];
+  }
+  function escScalers(cy,s){
+    return { X:function(x){return 200+(x-200)*s;}, Y:function(y){return cy+(y-cy)*s;} };
+  }
+  function escPathAt(def,s){
+    var sc=escScalers(def.cy,s);
+    return def.path(sc.X,sc.Y);
+  }
+  function escSpiral(x,y,s,flip){
+    return `<g transform="translate(${x},${y}) scale(${flip?-s:s},${s})">
+      <path d="M0 0 C14 -2 22 6 20 16 C18 24 10 27 5 22 C1 18 3 12 8 12 C11 12 13 15 11 17"
+        fill="none" stroke="#0a0a0a" stroke-width="2.6" stroke-linecap="round"/>
+    </g>`;
+  }
+  function escWing(x,y,flipRight,scale){
+    var feathers=[[0,0,118,14],[4,22,100,12],[8,42,82,10],[12,60,64,9],[16,76,47,8],[20,90,32,7]];
+    var f=feathers.map(function(fe,i){
+      var fx=fe[0],fy=fe[1],len=fe[2],w=fe[3];
+      return `<path d="M${fx} ${fy} q ${len*0.55} ${-w*1.4} ${len} 0 q ${-len*0.45} ${w*1.1} ${-len} 0 Z"
+        fill="${i%2?'#0a0a0a':'none'}" stroke="#0a0a0a" stroke-width="2.4"/>`;
+    }).join("");
+    return `<g transform="translate(${x},${y}) scale(${flipRight?scale:-scale},${scale}) rotate(-24)">${f}</g>`;
+  }
+  function escChevrons(def){
+    var out="";
+    for(var i=0;i<def.chev.n;i++){
+      var y=def.chev.y0+i*24, cw=def.chev.w-i*10;
+      out+=`<path d="M${def.roundel.cx-cw} ${y+14} L${def.roundel.cx} ${y} L${def.roundel.cx+cw} ${y+14}"
+        fill="none" stroke="#0a0a0a" stroke-width="${5-i}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+    return out;
+  }
+  function escLaurel(r0){
+    var cx=r0.cx, cy=r0.cy, R=r0.r+16;
+    var leaves="";
+    [150,170,190,210,230].forEach(function(a){
+      var rad=a*Math.PI/180;
+      var x=cx+R*Math.cos(rad), y=cy+R*Math.sin(rad);
+      var xm=2*cx-x;
+      leaves+=`<ellipse cx="${x}" cy="${y}" rx="8" ry="3" transform="rotate(${a+90} ${x} ${y})"/>
+               <ellipse cx="${xm}" cy="${y}" rx="8" ry="3" transform="rotate(${-(a+90)} ${xm} ${y})"/>`;
+    });
+    return `<g stroke="#0a0a0a" stroke-width="2" fill="none">
+        <path d="M${cx-R} ${cy+R*0.7} A${R} ${R} 0 0 1 ${cx-R} ${cy-R*0.7}"/>
+        <path d="M${cx+R} ${cy+R*0.7} A${R} ${R} 0 0 0 ${cx+R} ${cy-R*0.7}"/>
+      </g><g fill="#0a0a0a">${leaves}</g>`;
+  }
+  /* sample N points along a path (for rivets) using a scratch SVG */
+  var escScratch=null;
+  function escRivetPoints(d,n){
+    if(!escScratch){
+      escScratch=document.createElementNS("http://www.w3.org/2000/svg","svg");
+      escScratch.setAttribute("style","position:absolute;width:0;height:0;overflow:hidden");
+      document.body.appendChild(escScratch);
+    }
+    var p=document.createElementNS("http://www.w3.org/2000/svg","path");
+    p.setAttribute("d",d);
+    escScratch.appendChild(p);
+    var len=p.getTotalLength(), pts=[];
+    for(var i=0;i<n;i++){
+      var pt=p.getPointAtLength(len*i/n);
+      pts.push([pt.x,pt.y]);
+    }
+    escScratch.removeChild(p);
+    return pts;
+  }
+  var escUid=0;
+  function escFrontSVG(def,badge){
+    var id=++escUid;
+    var outer=escPathAt(def,1), inner=escPathAt(def,0.93), field=escPathAt(def,0.86);
+    var rivets=escRivetPoints(escPathAt(def,0.962),12)
+      .map(function(pt){return `<circle cx="${pt[0]}" cy="${pt[1]}" r="3.2"/>`;}).join("");
+    var r=def.roundel;
+    return `<svg viewBox="0 0 400 470" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="escHatch${id}" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+          <line x1="0" y1="0" x2="0" y2="7" stroke="#0a0a0a" stroke-width="0.7" opacity="0.5"/>
+        </pattern>
+        <clipPath id="escClip${id}"><path d="${outer}"/></clipPath>
+        <linearGradient id="escGloss${id}" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+          <stop offset="0.5" stop-color="#fff" stop-opacity="0.85"/>
+          <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      ${escWing(def.wings.lx,def.wings.y,false,def.wings.s)}
+      ${escWing(def.wings.rx,def.wings.y,true,def.wings.s)}
+      <path d="${outer}" fill="#ffffff" stroke="#0a0a0a" stroke-width="7"/>
+      <path d="${inner}" fill="none" stroke="#0a0a0a" stroke-width="2.5"/>
+      <path d="${field}" fill="url(#escHatch${id})" stroke="#0a0a0a" stroke-width="1.4"/>
+      <g fill="#0a0a0a">${rivets}</g>
+      ${def.fil.map(function(f){return escSpiral(f[0],f[1],f[2],f[3]);}).join("")}
+      <circle cx="${r.cx}" cy="${r.cy}" r="${r.r+28}" fill="#ffffff"/>
+      <circle cx="${r.cx}" cy="${r.cy}" r="${r.r+28}" fill="none" stroke="#0a0a0a" stroke-width="1.6"/>
+      <circle cx="${r.cx}" cy="${r.cy}" r="${r.r+21}" fill="none" stroke="#0a0a0a" stroke-width="0.8" stroke-dasharray="1.5 5"/>
+      ${escLaurel(r)}
+      <circle cx="${r.cx}" cy="${r.cy}" r="${r.r}" fill="#0a0a0a"/>
+      <circle cx="${r.cx}" cy="${r.cy}" r="${r.r-7}" fill="none" stroke="#ffffff" stroke-width="1.2"/>
+      <text x="${r.cx+3}" y="${r.cy+r.r*0.26}" text-anchor="middle" font-family="Cinzel,serif" font-weight="700"
+        font-size="${Math.round(r.r*0.72)}" letter-spacing="6" fill="#ffffff">${badge.g}</text>
+      ${escChevrons(def)}
+      <g clip-path="url(#escClip${id})">
+        <rect class="gloss-sweep" x="-260" y="0" width="180" height="470"
+          fill="url(#escGloss${id})" transform="skewX(-18)">
+          <animate attributeName="x" values="-320;560" dur="4.5s" repeatCount="indefinite"/>
+        </rect>
+      </g>
+    </svg>`;
+  }
+  function escBackSVG(def,badge){
+    var id=++escUid;
+    var outer=escPathAt(def,1), inner=escPathAt(def,0.93);
+    var r=def.roundel;
+    var label=(badge.name||'').split(' ')[0];
+    var fsz=Math.max(9,Math.min(14,Math.round((r.r*2.2)/Math.max(1,label.length))));
+    return `<svg viewBox="0 0 400 470" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="escHatchB${id}" width="6" height="6" patternTransform="rotate(-45)" patternUnits="userSpaceOnUse">
+          <line x1="0" y1="0" x2="0" y2="6" stroke="#ffffff" stroke-width="0.6" opacity="0.35"/>
+        </pattern>
+      </defs>
+      <path d="${outer}" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="7"/>
+      <path d="${inner}" fill="url(#escHatchB${id})" stroke="#ffffff" stroke-width="1.6"/>
+      <circle cx="${r.cx}" cy="${r.cy}" r="${r.r+4}" fill="none" stroke="#ffffff" stroke-width="1.4"/>
+      <circle cx="${r.cx}" cy="${r.cy}" r="${r.r-4}" fill="none" stroke="#ffffff" stroke-width="0.7" stroke-dasharray="2 6"/>
+      <text x="${r.cx}" y="${r.cy-8}" text-anchor="middle" font-family="'IBM Plex Mono',monospace"
+        font-size="${fsz}" letter-spacing="5" fill="#ffffff">${label}</text>
+      <text x="${r.cx+2}" y="${r.cy+20}" text-anchor="middle" font-family="Cinzel,serif" font-weight="700"
+        font-size="21" letter-spacing="4" fill="#ffffff">MMXXVI</text>
+      <path d="M${r.cx-30} ${r.cy+r.r+62} L${r.cx} ${r.cy+r.r+34} L${r.cx+30} ${r.cy+r.r+62}"
+        fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="${r.cx}" y1="${r.cy+r.r+38}" x2="${r.cx}" y2="${r.cy+r.r+96}"
+        stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+    </svg>`;
+  }
+  function escEdgeSVG(def){
+    return `<svg viewBox="0 0 400 470" xmlns="http://www.w3.org/2000/svg">
+      <path d="${escPathAt(def,1)}" fill="#0a0a0a"/>
+    </svg>`;
+  }
+
+  /* stage build + drag-to-turn interaction */
+  var ESC_THICK=10;
+  var escRotor=null, escDragging=false, escStartX=0, escAngle=0, escVel=0, escManual=false, escRaf=null;
+  var escList=[], escIdx=0, escMap=null;
+  function escLayer(html,z,cls){
+    var d=document.createElement('div');
+    d.className='escLayer '+(cls||'');
+    d.style.transform='translateZ('+z+'px)'+(cls==='bk'?' rotateY(180deg)':'');
+    d.innerHTML=html;
+    return d;
+  }
+  function escSetAngle(a){ if(escRotor) escRotor.style.transform='rotateY('+a+'deg)'; }
+  function escLoop(){
+    if(!escDragging){
+      escVel*=0.94;
+      escAngle+=escVel+360/(9*60);
+      escSetAngle(escAngle);
+    }
+    escRaf=requestAnimationFrame(escLoop);
+  }
+  function escEnterManual(){
+    if(escManual||!escRotor)return;
+    escManual=true;
+    var st=getComputedStyle(escRotor).transform;
+    if(st&&st!=='none'){
+      var m=st.match(/matrix3d\(([^)]+)\)/);
+      if(m){
+        var v=m[1].split(',').map(Number);
+        escAngle=Math.atan2(v[8],v[0])*180/Math.PI*-1;
+      }
+    }
+    escRotor.classList.add('manual');
+    escSetAngle(escAngle);
+    escLoop();
+  }
+  function escStopRaf(){
+    if(escRaf!==null){ cancelAnimationFrame(escRaf); escRaf=null; }
+  }
+  function escRenderView(){
+    var badge=BADGE_IDS[escList[escIdx]];
+    if(!badge)return;
+    var got=!escMap||!!escMap[badge.id];
+    var def=escDefFor(badge.id);
+    escStopRaf();
+    escManual=false; escDragging=false; escVel=0;
+    escStageEl.classList.remove('grabbing');
+    escStageEl.innerHTML='<div class="escHalo"><span></span><span></span><span></span></div>'+
+      '<div class="escSpinner"><div class="escGimbal"><div class="escRotor"></div></div></div>';
+    escRotor=escStageEl.querySelector('.escRotor');
+    for(var i=-ESC_THICK;i<=ESC_THICK;i+=4) escRotor.appendChild(escLayer(escEdgeSVG(def),i,'escEdge'));
+    escRotor.appendChild(escLayer(escFrontSVG(def,badge),ESC_THICK+0.5,''));
+    escRotor.appendChild(escLayer(escBackSVG(def,badge),-(ESC_THICK+0.5),'bk'));
+    badgeInfoEl.classList.toggle('locked', !got);
+    /* replay text reveal */
+    escTextEl.classList.remove('reveal');
+    void escTextEl.offsetWidth;
+    escTitleEl.textContent=badge.name;
+    escDescEl.textContent=badge.how||'';
+    escEarnedEl.textContent=got?'EARNED':'LOCKED';
+    escTextEl.classList.add('reveal');
+    escNavEl.classList.toggle('solo', escList.length<2);
+    escCountEl.textContent=(escIdx+1)+' / '+escList.length;
+  }
+  function escStep(d){
+    if(escList.length<2)return;
+    escIdx=(escIdx+d+escList.length)%escList.length;
+    escRenderView();
+  }
+  function openBadgeShowcase(ids, startIdx, map){
+    if(!badgeInfoEl||!ids||!ids.length)return;
+    escList=ids.slice();
+    escIdx=Math.max(0,Math.min(escList.length-1,startIdx|0));
+    escMap=map||null;
     menuFocusBeforeInfo=menuFocusIdx;
     badgeInfoEl.classList.remove('hidden');
+    escRenderView();
     menuFocusIdx=0;
     applyMenuFocus();
   }
+  var escDownT=0, escDownX=0;
+  escStageEl.addEventListener('pointerdown',function(e){
+    e.stopPropagation();
+    escDownT=Date.now(); escDownX=e.clientX;
+    escEnterManual();
+    escDragging=true; escStartX=e.clientX;
+    escStageEl.setPointerCapture(e.pointerId);
+    escStageEl.classList.add('grabbing');
+  });
+  escStageEl.addEventListener('pointermove',function(e){
+    if(!escDragging)return;
+    var dx=e.clientX-escStartX;
+    escStartX=e.clientX;
+    escVel=dx*0.45;
+    escAngle+=escVel;
+    escSetAngle(escAngle);
+  });
+  function escEndDrag(e){
+    if(!escDragging)return;
+    escDragging=false;
+    escStageEl.classList.remove('grabbing');
+    /* quick tap = replay reveal of current shield */
+    if(Date.now()-escDownT<250&&Math.abs(e.clientX-escDownX)<6) escRenderView();
+  }
+  escStageEl.addEventListener('pointerup',escEndDrag);
+  escStageEl.addEventListener('pointercancel',escEndDrag);
+  escPrevEl.addEventListener('pointerdown',function(e){ e.stopPropagation(); escStep(-1); });
+  escNextEl.addEventListener('pointerdown',function(e){ e.stopPropagation(); escStep(1); });
+  window.addEventListener('keydown',function(e){
+    if(!badgeInfoEl||badgeInfoEl.classList.contains('hidden'))return;
+    if(e.key==='ArrowRight') escStep(1);
+    else if(e.key==='ArrowLeft') escStep(-1);
+    else if(e.key==='Escape') closeBadgeInfo();
+  });
+
   function closeBadgeInfo(){
     if(!badgeInfoEl||badgeInfoEl.classList.contains('hidden'))return;
+    escStopRaf();
     badgeInfoEl.classList.add('hidden');
     if(badgeRowEl){
       var kids=badgeRowEl.querySelectorAll('.badge.sel');
@@ -3821,7 +4292,7 @@
             e.preventDefault();
             var kids=rowEl.querySelectorAll('.badge');
             for(var k=0;k<kids.length;k++) kids[k].classList.toggle('sel', kids[k]===el);
-            openBadgeInfo(b, el.classList.contains('got'));
+            openBadgeShowcase(BADGE_ORDER, idx, map);
           });
         }
         rowEl.appendChild(el);
@@ -4207,7 +4678,7 @@
     spawnTimer=1.5; pipTimer=0.5; spiral=null; squashT=0;
     combo=0; coinScore=0; scoreBase=0; pounding=false; poundReady=false; coyoteT=0;
     boostT=0; boostSpawnTimer=8;
-    everHit=false; stormCoins=0; boostsGrabbed=0;
+    everHit=false; stormCoins=0; boostsGrabbed=0; runBadges=[];
     boostPads.forEach(function(bp){bp.alive=false;bp.mesh.visible=false;bp.shadow.visible=false;});
     outline.material.color.setHex(INK);
     hitStop=0; fovPulse=0; shakeT=0;
@@ -4303,6 +4774,8 @@
     submitScore(s, elapsed);
     menuFocusIdx=0;
     applyMenuFocus();
+    /* run is over — present any badges unlocked this run, one by one */
+    if(runBadges.length) openBadgeShowcase(runBadges, 0, null);
   }
 
   nameField.addEventListener('pointerdown',function(e){ e.stopPropagation(); });
@@ -4521,6 +4994,11 @@
   function setStickPadHide(hide){ setPadMode(hide); }
 
   function moveMenuFocus(dir){
+    /* escutcheon carousel open: left/right pages through badges */
+    if(badgeInfoEl&&!badgeInfoEl.classList.contains('hidden')&&(dir==='l'||dir==='r')){
+      escStep(dir==='r'?1:-1);
+      return;
+    }
     var targets=getMenuTargets();
     if(!targets.length)return;
     if(dir==='r'||dir==='d') menuFocusIdx=(menuFocusIdx+1)%targets.length;
@@ -4545,7 +5023,7 @@
       if(el&&def){
         var kids=badgeRowEl.querySelectorAll('.badge');
         for(var k=0;k<kids.length;k++) kids[k].classList.toggle('sel', kids[k]===el);
-        openBadgeInfo(def, el.classList.contains('got'));
+        openBadgeShowcase(BADGE_ORDER, t.i, earned);
       }
       return;
     }
@@ -4555,7 +5033,7 @@
       if(pel&&pdef){
         var pk=profileBadgeRowEl.querySelectorAll('.badge');
         for(var pi=0;pi<pk.length;pi++) pk[pi].classList.toggle('sel', pk[pi]===pel);
-        openBadgeInfo(pdef, pel.classList.contains('got'));
+        openBadgeShowcase(BADGE_ORDER, t.i, profileBadgeMap);
       }
       return;
     }
@@ -5340,6 +5818,9 @@
 
   function setArenaVisible(v){
     setFieldVisible(v);
+    if(!v){
+      hideHubPortalHud(); /* leaving hub: never leave the countdown stuck on screen */
+    }
   }
   function setCorridorVisible(v){
     for(var i=0;i<corrMeshes.length;i++)corrMeshes[i].visible=v;
@@ -5368,6 +5849,10 @@
     setViperVisible(false);
     setMazeVisible(false); clearMazeLive();
     setRaceVisible(false); raceState='none'; setDanceVisible(false); danceState='none';
+    /* debug portal skips enterHubDestination — clear hub countdown here */
+    hubTimer=0; portalUnlocked=false;
+    hideHubPortalHud();
+    hubPortal.visible=false; hubPortalShadow.visible=false;
     scene.fog=null; scene.background=WHITE_BG;
     inkMeterEl.style.display='none';
     ballMat.color.setHex(RED);
@@ -5389,6 +5874,7 @@
     heartMesh.visible=true;
     toastQueue.push(raygunUnlocked?'THE CLIMB \u00B7 RAYGUN READY':'THE CLIMB'); showNextToast();
     toastQueue.push('COLLECT THE COINS IN ORDER');
+    toastQueue.push('RIDE HIGH ON A WALL TO ROLL THE TUBE');
     spawnShock(pos.x,pos.z); fovPulse=0.3; boomSfx();
   }
   function returnToHub(){
@@ -6485,7 +6971,8 @@
     if(level==='corridor'){
       spawnTimer-=dt;
       if(spawnTimer<=0){
-        corridorThreat();
+        /* bullets only rain on the floor face — the side faces run machines instead */
+        if(corrFace===0&&corrRollT<=0) corridorThreat();
         /* slower cadence while the coin sequence is active; spike after portal opens */
         var seqActive=!corrPortalActive;
         var baseIv=seqActive?1.05:0.55;
@@ -6507,7 +6994,11 @@
     }
 
     var steps=2, sub=dt/steps;
-    for(var i=0;i<steps;i++)physicsStep(sub);
+    if(level==='corridor'&&corrRollT>0){
+      corrRollUpdate(dt); /* tube roll cinematic: ball glides onto the new floor */
+    } else {
+      for(var i=0;i<steps;i++)physicsStep(sub);
+    }
 
     /* bullets */
     for(i=0;i<bullets.length;i++){
@@ -7888,7 +8379,16 @@
         }
       }
     } else if(level==='corridor'){
-      /* exit portal unlocks only after the coin run clears */
+      /* tube roll: hold a high wall ride to bring that side down as the floor */
+      if(corrRollT<=0){
+        var rdir=(grounded&&pos.x<-CORR_RIDE_X)?1:((grounded&&pos.x>CORR_RIDE_X)?-1:0);
+        if(rdir!==0&&rdir===corrRideDir) corrRideT+=dt;
+        else corrRideT=rdir?dt:0;
+        corrRideDir=rdir;
+        if(rdir!==0&&corrRideT>=CORR_RIDE_HOLD) startCorrRoll(rdir);
+      }
+      if(corrTubeGroup) corrTubeGroup.rotation.z=corrRollA;
+      /* exit portal sits at the tube's end — reachable from any face */
       exitPortal.visible=corrPortalActive;
       if(corrPortalActive){
         exitPortal.rotation.y+=1.4*dt;
@@ -7897,7 +8397,15 @@
           exitCorridor();
         }
       }
-      /* sequence coins: in order; wrong pick resets the current segment only */
+      /* sequence coins: each rides its own face; only floor coins collect.
+         Wrong pick resets the current segment only. */
+      for(i=0;i<CORR_LIVE;i++){
+        var cc=corrCoins[i];
+        var ca2=corrPlaceMesh(cc.mesh,cc.x,cc.z,cc.face,0.75+Math.sin(elapsed*3+i)*0.08);
+        cc.mesh.rotation.y+=4*dt;
+        cc.mesh.rotation.z=ca2;
+        cc.mesh.scale.setScalar(i===coinIndex?1.25+Math.sin(elapsed*6)*0.15:1);
+      }
       if(coinBlinkT>0){
         coinBlinkT-=dt;
         var blinkOn=((coinBlinkT*8)|0)%2===0;
@@ -7911,24 +8419,24 @@
           }
           coinIndex=corrFailSeg;
         }
-      } else {
+      } else if(corrRollT<=0){
         for(i=0;i<CORR_LIVE;i++){
-          var cc=corrCoins[i];
-          if(!cc.alive)continue;
-          cc.mesh.rotation.y+=4*dt;
-          cc.mesh.position.y=terrainH(cc.x,cc.z)+0.75+Math.sin(elapsed*3+i)*0.08;
-          cc.mesh.scale.setScalar(i===coinIndex?1.25+Math.sin(elapsed*6)*0.15:1);
-          if(Math.hypot(pos.x-cc.x,pos.z-cc.z)<RADIUS+0.7&&Math.abs(pos.y-cc.mesh.position.y)<1.6){
+          var cc2=corrCoins[i];
+          if(!cc2.alive||corrRelOf(cc2.face)!==0)continue;
+          if(Math.hypot(pos.x-cc2.x,pos.z-cc2.z)<RADIUS+0.7&&Math.abs(pos.y-cc2.mesh.position.y)<1.6){
             if(i!==coinIndex){ failCoinSequence(); break; }
-            cc.alive=false; cc.mesh.visible=false;
+            cc2.alive=false; cc2.mesh.visible=false;
             coinIndex++;
             collected++; combo++;
             coinScore+=5*Math.min(combo,12)*(storm>0?2:1);
             if(storm>0){stormCoins++; if(stormCoins>=5)awardBadge('stormer');}
             coinBlip(); updateHUD();
-            flyCoin(cc.x,cc.mesh.position.y,cc.z);
+            flyCoin(cc2.x,cc2.mesh.position.y,cc2.z);
             if(coinIndex>0&&coinIndex%CORR_SEG_LEN===0&&coinIndex<CORR_LIVE){
               toastQueue.push('CHECKPOINT'); showNextToast();
+              var nrel=corrRelOf(corrCoins[coinIndex].face);
+              if(nrel===1){ toastQueue.push('NEXT RUN \u00B7 RIDE THE LEFT WALL'); showNextToast(); }
+              else if(nrel===-1){ toastQueue.push('NEXT RUN \u00B7 RIDE THE RIGHT WALL'); showNextToast(); }
               badgeSfx(); fovPulse=0.15;
             }
             if(coinIndex>=CORR_LIVE) clearCorrSequence();
@@ -7956,35 +8464,68 @@
           fovPulse=0.25; badgeSfx();
         }
       }
-      /* sliders: channel sweepers — wall riders (|x|>5.5) are safe */
+      /* FLOOR face — sliders: channel sweepers; wall riders (|x|>5.5) are safe */
+      var floorLive=(corrRelOf(0)===0&&corrRollT<=0);
       for(i=0;i<sliders.length;i++){
         var sl=sliders[i];
-        var sx=Math.sin(elapsed*sl.speed+sl.phase)*sl.amp;
-        /* ease off near the active coin so the sequence isn't contested */
-        if(!corrPortalActive&&coinIndex<CORR_LIVE&&corrCoins[coinIndex]){
-          if(Math.abs(sl.z-corrCoins[coinIndex].z)<7) sx*=0.35;
+        if(floorLive){
+          var sx=Math.sin(elapsed*sl.speed+sl.phase)*sl.amp;
+          /* ease off near the active coin so the sequence isn't contested */
+          if(!corrPortalActive&&coinIndex<CORR_LIVE&&corrCoins[coinIndex]&&corrCoins[coinIndex].face===0){
+            if(Math.abs(sl.z-corrCoins[coinIndex].z)<7) sx*=0.35;
+          }
+          sl.lx=sx;
         }
-        sl.mesh.position.set(sx,terrainH(sx,sl.z)+0.85,sl.z);
+        var sa2=corrPlaceMesh(sl.mesh,sl.lx,sl.z,0,0.85);
         sl.mesh.rotation.y+=1.5*dt;
-        if(iframes<=0&&Math.abs(pos.x)<=5.5
-           &&Math.hypot(pos.x-sx,pos.z-sl.z)<RADIUS+1.0
+        sl.mesh.rotation.z=sa2;
+        if(floorLive&&iframes<=0&&Math.abs(pos.x)<=5.5
+           &&Math.hypot(pos.x-sl.lx,pos.z-sl.z)<RADIUS+1.0
            &&Math.abs(pos.y-sl.mesh.position.y)<RADIUS+0.9){
-          takeHit(sx,sl.z);
+          takeHit(sl.lx,sl.z);
         }
       }
-      /* gates: rotating bars over the pipe center (hop them) */
+      /* FLOOR face — gates: rotating bars over the pipe center (hop them) */
       for(i=0;i<gates.length;i++){
         var gt=gates[i];
         gt.theta+=gt.omega*dt;
+        var ga2=corrPlaceMesh(gt.mesh,0,gt.z,0,0.9);
         gt.mesh.rotation.y=-gt.theta;
-        gt.mesh.position.y=0.9;
-        if(iframes<=0&&pos.y-RADIUS<1.3){
+        gt.mesh.rotation.z=ga2;
+        if(floorLive&&iframes<=0&&pos.y-RADIUS<1.3){
           var gdx=pos.x-0, gdz=pos.z-gt.z;
           var perp=Math.abs(gdx*Math.sin(gt.theta)-gdz*Math.cos(gt.theta));
           var along=Math.abs(gdx*Math.cos(gt.theta)+gdz*Math.sin(gt.theta));
           if(perp<0.35+RADIUS&&along<6){
             takeHit(pos.x-Math.sin(gt.theta),gt.z+Math.cos(gt.theta));
           }
+        }
+      }
+      /* LEFT face — pistons pinch the channel; slip the gap or time the pulse */
+      var pistLive=(corrRelOf(1)===0&&corrRollT<=0);
+      for(i=0;i<corrPistons.length;i++){
+        var pp2=corrPistons[i];
+        pp2.gap=1.3+5.4*(0.5+0.5*Math.sin(elapsed*pp2.speed+pp2.phase));
+        var pa2=corrPlaceMesh(pp2.mL,-(pp2.gap+0.85),pp2.z,1,1.2);
+        corrPlaceMesh(pp2.mR,(pp2.gap+0.85),pp2.z,1,1.2);
+        pp2.mL.rotation.z=pa2; pp2.mR.rotation.z=pa2;
+        if(pistLive&&iframes<=0&&Math.abs(pos.z-pp2.z)<RADIUS+0.85&&pos.y-RADIUS<2.4){
+          if(Math.abs(pos.x)>pp2.gap-RADIUS*0.4&&Math.abs(pos.x)<pp2.gap+1.7+RADIUS){
+            takeHit(pos.x>0?pp2.gap+0.85:-(pp2.gap+0.85),pp2.z);
+          }
+        }
+      }
+      /* RIGHT face — stompers slam the lane; pass while they hang high */
+      var stompLive=(corrRelOf(2)===0&&corrRollT<=0);
+      for(i=0;i<corrStompers.length;i++){
+        var st2=corrStompers[i];
+        st2.yl=4.6*Math.pow(Math.abs(Math.sin(elapsed*st2.speed+st2.phase)),0.6);
+        var ta2=corrPlaceMesh(st2.mesh,st2.x,st2.z,2,st2.yl+0.55);
+        st2.mesh.rotation.z=ta2;
+        if(stompLive&&iframes<=0&&st2.yl<1.0
+           &&Math.abs(pos.x-st2.x)<RADIUS+1.3&&Math.abs(pos.z-st2.z)<RADIUS+1.3
+           &&pos.y-RADIUS<st2.yl+1.1){
+          takeHit(st2.x,st2.z);
         }
       }
     }
