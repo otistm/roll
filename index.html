@@ -3458,7 +3458,8 @@
   var major=null, majorDone=false; /* major boss: hub seq step 1 */
   var portalUnlocked=false;        /* hub ramp portal: HUB_PORTAL_WAIT after each hub arrival */
   var HUB_PORTAL_WAIT=15;
-  var hubSeq=0;                    /* random destination index: 0 nautilus … 8 pulse */
+  var hubSeq=0;                    /* next portal destination: 0 nautilus … 8 pulse */
+  var hubPool=[];                  /* remaining destinations this life (no repeats until death) */
   var hubTimer=0;                  /* time spent in hub rest this visit */
   var obs=null, obsY=OBS_FLOAT, obsX=0, obsZ=0, inkFill=0, INK_CAP=6, obsDead=false;
   var lastInkT=-99, inkDecayT=0;
@@ -4232,7 +4233,7 @@
     blotches.forEach(function(b){b.alive=false;b.mesh.visible=false;});
     coinIndex=0; coinBlinkT=0; corrPortalActive=false;
     portalUnlocked=false; hubTimer=0;
-    hubSeq=(Math.random()*HUB_SEQ_LEN)|0; /* random first destination each run */
+    resetHubJourney(); /* fresh no-repeat bag + first destination */
     hideHubPortalHud();
     raygunUnlocked=false; raygunT=0; rayFireCool=0; raygunSpawnTimer=8;
     raySlotEl.classList.remove('got');
@@ -5428,12 +5429,25 @@
     stormEl.classList.remove('on'); stormSpan.textContent='INK STORM';
     spawnShock(0,0); fovPulse=0.3; boomSfx();
   }
+  function refillHubPool(){
+    hubPool=[];
+    for(var i=0;i<HUB_SEQ_LEN;i++) hubPool.push(i);
+  }
+  function drawHubDest(){
+    /* without replacement this life; refill only after the full set is cleared */
+    if(!hubPool.length) refillHubPool();
+    var i=(Math.random()*hubPool.length)|0;
+    hubSeq=hubPool[i];
+    hubPool.splice(i,1);
+  }
+  function resetHubJourney(){
+    /* death / new run: every destination is available again */
+    refillHubPool();
+    drawHubDest();
+  }
   function advanceHubSeq(){
-    /* pick a random destination; avoid immediate repeat when possible */
-    var prev=hubSeq, next;
-    do { next=(Math.random()*HUB_SEQ_LEN)|0; }
-    while(HUB_SEQ_LEN>1 && next===prev);
-    hubSeq=next;
+    /* level clear → next unused destination (no repeats until death resets the bag) */
+    drawHubDest();
   }
   function enterHubDestination(){
     portalUnlocked=false;
@@ -5450,9 +5464,9 @@
     else enterDance();
   }
   function failToHub(){
-    /* died outside hub rest: bank score, bounce home, roll a fresh destination */
+    /* died outside hub rest: bank score, bounce home, reshuffle the destination bag */
     var banked=bankDeathScore();
-    advanceHubSeq();
+    resetHubJourney();
     clearThreats();
     FIELD_OFF=false;
     major=null;
